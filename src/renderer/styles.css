@@ -253,3 +253,123 @@ button:hover {
 #palette-results li {
   padding: 6px 8px;
 }
+
+#notes-summary {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 14px;
+  position: relative;
+}
+
+#notes-summary strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+#notes-summary-text {
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+#notes-summary-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  line-height: 1;
+}
+
+#ai-chat-panel {
+  position: fixed;
+  top: 57px;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+
+#ai-chat-panel[hidden] {
+  display: none;
+}
+
+#ai-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+#ai-chat-close {
+  padding: 2px 8px;
+  line-height: 1;
+}
+
+#ai-chat-status {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+#ai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-message {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 100%;
+}
+
+.chat-message.user {
+  background: var(--accent);
+  align-self: flex-end;
+}
+
+.chat-message.assistant {
+  background: var(--bg-hover);
+  align-self: flex-start;
+}
+
+.chat-message .chat-sources {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chat-message.user .chat-sources {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+#ai-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+#ai-chat-input {
+  flex: 1;
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}

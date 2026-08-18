@@ -11,6 +11,7 @@
     <header id="titlebar">
       <span id="app-name">DocStew</span>
       <button id="open-folder-btn">Open Folder</button>
+      <button id="ai-chat-btn">Ask My Notes</button>
       <button id="palette-btn" title="Command Palette (Ctrl+K)">⌘ Command Palette</button>
     </header>
 
@@ -29,8 +30,14 @@
             <input id="notes-title" type="text" placeholder="Title" />
             <input id="notes-tags" type="text" placeholder="tags, comma, separated" />
             <button id="notes-toggle-preview">Preview</button>
+            <button id="notes-summarize">Summarize</button>
             <button id="notes-save">Save</button>
             <span id="notes-save-status"></span>
+          </div>
+          <div id="notes-summary" hidden>
+            <strong>Summary</strong>
+            <button id="notes-summary-close" title="Close">&times;</button>
+            <p id="notes-summary-text"></p>
           </div>
           <textarea id="notes-body" placeholder="Write in Markdown..."></textarea>
           <div id="notes-preview" hidden></div>
@@ -41,6 +48,19 @@
     <div id="command-palette" hidden>
       <input id="palette-input" type="text" placeholder="Type a command..." />
       <ul id="palette-results"></ul>
+    </div>
+
+    <div id="ai-chat-panel" hidden>
+      <div id="ai-chat-header">
+        <strong>Ask My Notes</strong>
+        <button id="ai-chat-close" title="Close">&times;</button>
+      </div>
+      <div id="ai-chat-status"></div>
+      <div id="ai-chat-messages"></div>
+      <div id="ai-chat-input-row">
+        <input id="ai-chat-input" type="text" placeholder="Ask a question about your library..." />
+        <button id="ai-chat-send">Send</button>
+      </div>
     </div>
   </div>
 

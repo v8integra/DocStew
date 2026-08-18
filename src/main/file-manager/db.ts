@@ -15,6 +15,14 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_file_path ON documents(file_path);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+  document_id TEXT PRIMARY KEY,
+  model TEXT NOT NULL,
+  vector BLOB NOT NULL,
+  text TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 export function openDatabase(dbPath: string): Database.Database {

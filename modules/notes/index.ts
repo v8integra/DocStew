@@ -1,8 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import { renderMarkdownToHtml } from "../../src/main/markdown";
+import { chat } from "../../src/main/ai-engine/ollamaClient";
+import { getChatModel } from "../../src/main/ai-engine/config";
 import { parseNote, serializeNote, type ParsedNote } from "./frontmatter";
-import type { DocStewModule, DocumentHandle, PeekInfo, RenderDescriptor, SearchableText } from "../../src/shared/module-contract";
+import type { AITool, DocStewModule, DocumentHandle, PeekInfo, RenderDescriptor, SearchableText } from "../../src/shared/module-contract";
 
 export interface NotesRenderData extends ParsedNote {
   html: string;
@@ -16,6 +18,30 @@ function readAndParse(filePath: string): ParsedNote {
   const raw = fs.readFileSync(filePath, "utf-8");
   return parseNote(raw, fallbackTitle(filePath));
 }
+
+const summarizeTool: AITool = {
+  name: "summarize",
+  description: "Summarize this note in 2-3 concise sentences.",
+  parameters: {},
+  async handler(handle: DocumentHandle): Promise<unknown> {
+    const model = getChatModel();
+    if (!model) {
+      throw new Error("No local chat model is available. Install Ollama and pull a model to use AI features.");
+    }
+    const note = readAndParse(handle.filePath);
+    if (note.body.trim().length === 0) {
+      return { summary: "(nothing to summarize — this note is empty)" };
+    }
+    const summary = await chat(model, [
+      {
+        role: "system",
+        content: "Summarize the user's note in 2-3 concise sentences. Respond with only the summary, no preamble.",
+      },
+      { role: "user", content: note.body },
+    ]);
+    return { summary: summary.trim() };
+  },
+};
 
 const notesModule: DocStewModule = {
   id: "notes",
@@ -71,7 +97,7 @@ const notesModule: DocStewModule = {
     return { title: note.title, tags: note.tags };
   },
 
-  aiTools: [],
+  aiTools: [summarizeTool],
 };
 
 export default notesModule;

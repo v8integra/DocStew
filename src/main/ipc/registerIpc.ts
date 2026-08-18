@@ -4,6 +4,8 @@ import { IPC_CHANNELS } from "./channels";
 import type { LibraryManager, DocumentRecord } from "../file-manager/libraryManager";
 import type { PluginRegistry } from "../plugin-registry/registry";
 import { renderMarkdownToHtml } from "../markdown";
+import type { EmbeddingIndex } from "../ai-engine/embeddingIndex";
+import { askAboutLibrary } from "../ai-engine/chatService";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -23,7 +25,33 @@ async function enrichWithPeek(
   }
 }
 
-export function registerIpc(library: LibraryManager, registry: PluginRegistry): void {
+export interface AiEngineHandles {
+  embeddingIndex?: EmbeddingIndex;
+  chatModel?: string;
+  embedModel?: string;
+}
+
+/** Best-effort: re-embeds a document's searchable text for "ask my notes".
+ * Failures (Ollama momentarily unreachable, etc.) shouldn't break the file
+ * operation that triggered them — the embedding index just falls behind. */
+async function reindexForEmbeddings(
+  record: DocumentRecord,
+  registry: PluginRegistry,
+  embeddingIndex: EmbeddingIndex | undefined
+): Promise<void> {
+  if (!embeddingIndex || !record.moduleId) return;
+  const mod = registry.get(record.moduleId);
+  if (!mod) return;
+  try {
+    const handle = await mod.open(record.filePath);
+    const searchable = await mod.index(handle);
+    await embeddingIndex.indexDocument(record.id, searchable.text);
+  } catch {
+    // deliberately swallowed — see comment above
+  }
+}
+
+export function registerIpc(library: LibraryManager, registry: PluginRegistry, ai: AiEngineHandles = {}): void {
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath?: string) => {
     try {
       let targetFolder = folderPath;
@@ -33,6 +61,7 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry): 
         targetFolder = result.filePaths[0];
       }
       const files = library.openFolder(targetFolder);
+      await Promise.all(files.map((record) => reindexForEmbeddings(record, registry, ai.embeddingIndex)));
       return { success: true as const, folderPath: targetFolder, files };
     } catch (error) {
       return { success: false as const, error: errorMessage(error) };
@@ -76,7 +105,8 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry): 
       try {
         const handle = await mod.open(record.filePath);
         await mod.save(handle, content);
-        library.indexFile(record.filePath);
+        const updated = library.indexFile(record.filePath);
+        await reindexForEmbeddings(updated, registry, ai.embeddingIndex);
         return { success: true as const };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
@@ -98,6 +128,7 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry): 
       try {
         await mod.create(filePath);
         const record = library.indexFile(filePath);
+        await reindexForEmbeddings(record, registry, ai.embeddingIndex);
         return { success: true as const, file: record };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
@@ -112,4 +143,59 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry): 
   ipcMain.handle(IPC_CHANNELS.NOTES_RENDER_PREVIEW, async (_event: IpcMainInvokeEvent, markdown: string) => {
     return { html: await renderMarkdownToHtml(markdown) };
   });
+
+  ipcMain.handle(IPC_CHANNELS.AI_STATUS, async () => {
+    return {
+      chatModel: ai.chatModel,
+      embedModel: ai.embedModel,
+      indexedCount: ai.embeddingIndex?.count() ?? 0,
+    };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.AI_CHAT, async (_event: IpcMainInvokeEvent, question: string) => {
+    if (!ai.chatModel) {
+      return {
+        success: false as const,
+        error: "No local chat model is available. Install Ollama and pull a model, e.g. `ollama pull llama3.2`.",
+      };
+    }
+    if (!ai.embeddingIndex) {
+      return {
+        success: false as const,
+        error:
+          "No embedding model is available, so DocStew can't search your notes yet. Pull an embedding model, e.g. `ollama pull nomic-embed-text`.",
+      };
+    }
+    try {
+      const result = await askAboutLibrary(question, ai.chatModel, ai.embeddingIndex, library);
+      return { success: true as const, ...result };
+    } catch (error) {
+      return { success: false as const, error: errorMessage(error) };
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.AI_RUN_TOOL,
+    async (_event: IpcMainInvokeEvent, fileId: string, toolName: string) => {
+      const record = library.getFile(fileId);
+      if (!record || !record.moduleId) {
+        return { success: false as const, error: "No module registered for this file type." };
+      }
+      const mod = registry.get(record.moduleId);
+      if (!mod) {
+        return { success: false as const, error: `Module "${record.moduleId}" is not loaded.` };
+      }
+      const tool = mod.aiTools.find((t) => t.name === toolName);
+      if (!tool) {
+        return { success: false as const, error: `Module "${mod.id}" has no AI tool named "${toolName}".` };
+      }
+      try {
+        const handle = await mod.open(record.filePath);
+        const result = await tool.handler(handle, {});
+        return { success: true as const, result };
+      } catch (error) {
+        return { success: false as const, error: errorMessage(error) };
+      }
+    }
+  );
 }

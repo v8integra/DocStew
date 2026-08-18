@@ -42,6 +42,32 @@ interface NotesData {
   html: string;
 }
 
+interface AiStatus {
+  chatModel?: string;
+  embedModel?: string;
+  indexedCount: number;
+}
+
+interface ChatSource {
+  documentId: string;
+  filePath: string;
+  fileName: string;
+  score: number;
+}
+
+interface AiChatResult {
+  success: boolean;
+  answer?: string;
+  sources?: ChatSource[];
+  error?: string;
+}
+
+interface AiRunToolResult {
+  success: boolean;
+  result?: unknown;
+  error?: string;
+}
+
 interface DocStewApi {
   openFolder: (folderPath?: string) => Promise<OpenFolderResult>;
   listFiles: () => Promise<DocumentRecord[]>;
@@ -50,6 +76,9 @@ interface DocStewApi {
   createFile: (folderPath: string, fileName: string) => Promise<CreateFileResult>;
   listModules: () => Promise<Array<{ id: string; supportedExtensions: string[] }>>;
   renderMarkdownPreview: (markdown: string) => Promise<{ html: string }>;
+  aiStatus: () => Promise<AiStatus>;
+  aiChat: (question: string) => Promise<AiChatResult>;
+  aiRunTool: (fileId: string, toolName: string) => Promise<AiRunToolResult>;
 }
 
 interface Window {
@@ -73,6 +102,18 @@ const notesPreviewEl = document.getElementById("notes-preview") as HTMLDivElemen
 const notesTogglePreviewBtn = document.getElementById("notes-toggle-preview") as HTMLButtonElement;
 const notesSaveBtn = document.getElementById("notes-save") as HTMLButtonElement;
 const notesSaveStatusEl = document.getElementById("notes-save-status") as HTMLSpanElement;
+const notesSummarizeBtn = document.getElementById("notes-summarize") as HTMLButtonElement;
+const notesSummaryEl = document.getElementById("notes-summary") as HTMLDivElement;
+const notesSummaryTextEl = document.getElementById("notes-summary-text") as HTMLParagraphElement;
+const notesSummaryCloseBtn = document.getElementById("notes-summary-close") as HTMLButtonElement;
+
+const aiChatBtn = document.getElementById("ai-chat-btn") as HTMLButtonElement;
+const aiChatPanel = document.getElementById("ai-chat-panel") as HTMLDivElement;
+const aiChatCloseBtn = document.getElementById("ai-chat-close") as HTMLButtonElement;
+const aiChatStatusEl = document.getElementById("ai-chat-status") as HTMLDivElement;
+const aiChatMessagesEl = document.getElementById("ai-chat-messages") as HTMLDivElement;
+const aiChatInputEl = document.getElementById("ai-chat-input") as HTMLInputElement;
+const aiChatSendBtn = document.getElementById("ai-chat-send") as HTMLButtonElement;
 
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
@@ -154,6 +195,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   notesPreviewEl.hidden = true;
   notesTogglePreviewBtn.textContent = "Preview";
   notesSaveStatusEl.textContent = "";
+  notesSummaryEl.hidden = true;
 }
 
 async function selectFile(file: DocumentRecord): Promise<void> {
@@ -216,8 +258,29 @@ async function saveCurrentNote(): Promise<void> {
   }
 }
 
+async function summarizeCurrentNote(): Promise<void> {
+  if (!currentOpenFileId) return;
+  notesSummarizeBtn.disabled = true;
+  notesSummarizeBtn.textContent = "Summarizing...";
+  const result = await window.docstew.aiRunTool(currentOpenFileId, "summarize");
+  notesSummarizeBtn.disabled = false;
+  notesSummarizeBtn.textContent = "Summarize";
+
+  notesSummaryEl.hidden = false;
+  if (result.success) {
+    const { summary } = result.result as { summary: string };
+    notesSummaryTextEl.textContent = summary;
+  } else {
+    notesSummaryTextEl.textContent = `Error: ${result.error}`;
+  }
+}
+
 notesTogglePreviewBtn.addEventListener("click", () => void toggleNotesPreview());
 notesSaveBtn.addEventListener("click", () => void saveCurrentNote());
+notesSummarizeBtn.addEventListener("click", () => void summarizeCurrentNote());
+notesSummaryCloseBtn.addEventListener("click", () => {
+  notesSummaryEl.hidden = true;
+});
 
 // ---- Folder open ----
 
@@ -342,9 +405,100 @@ document.addEventListener("keydown", (event) => {
     togglePalette(palette.hidden);
   } else if (event.key === "Escape" && !palette.hidden) {
     togglePalette(false);
+  } else if (event.key === "Escape" && !aiChatPanel.hidden) {
+    toggleAiChat(false);
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !notesEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentNote();
+  }
+});
+
+// ---- Ask My Notes (chat panel) ----
+
+async function openSourceFile(documentId: string): Promise<void> {
+  const files = await window.docstew.listFiles();
+  const match = files.find((f) => f.id === documentId);
+  if (match) await selectFile(match);
+}
+
+function appendChatMessage(role: "user" | "assistant", text: string, sources?: ChatSource[]): void {
+  const bubble = document.createElement("div");
+  bubble.className = `chat-message ${role}`;
+
+  const textEl = document.createElement("div");
+  textEl.textContent = text;
+  bubble.appendChild(textEl);
+
+  if (sources && sources.length > 0) {
+    const sourcesEl = document.createElement("div");
+    sourcesEl.className = "chat-sources";
+    sourcesEl.textContent = "Sources: ";
+    sources.forEach((source, i) => {
+      const link = document.createElement("a");
+      link.href = "#";
+      link.textContent = `[${i + 1}] ${source.fileName}`;
+      link.style.color = "inherit";
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        void openSourceFile(source.documentId);
+      });
+      sourcesEl.appendChild(link);
+      if (i < sources.length - 1) sourcesEl.appendChild(document.createTextNode(", "));
+    });
+    bubble.appendChild(sourcesEl);
+  }
+
+  aiChatMessagesEl.appendChild(bubble);
+  aiChatMessagesEl.scrollTop = aiChatMessagesEl.scrollHeight;
+}
+
+async function refreshAiStatus(): Promise<void> {
+  const status = await window.docstew.aiStatus();
+  if (!status.chatModel) {
+    aiChatStatusEl.textContent = "No local chat model found. Install Ollama and run: ollama pull llama3.2";
+  } else if (!status.embedModel) {
+    aiChatStatusEl.textContent = `Chat model: ${status.chatModel}. No embedding model found — run: ollama pull nomic-embed-text`;
+  } else {
+    aiChatStatusEl.textContent = `Chat: ${status.chatModel} · Embeddings: ${status.embedModel} · ${status.indexedCount} document(s) indexed`;
+  }
+}
+
+async function sendChatMessage(): Promise<void> {
+  const question = aiChatInputEl.value.trim();
+  if (!question) return;
+
+  appendChatMessage("user", question);
+  aiChatInputEl.value = "";
+  aiChatInputEl.disabled = true;
+  aiChatSendBtn.disabled = true;
+
+  const result = await window.docstew.aiChat(question);
+  if (result.success && result.answer !== undefined) {
+    appendChatMessage("assistant", result.answer, result.sources);
+  } else {
+    appendChatMessage("assistant", `Error: ${result.error}`);
+  }
+
+  aiChatInputEl.disabled = false;
+  aiChatSendBtn.disabled = false;
+  aiChatInputEl.focus();
+}
+
+function toggleAiChat(show: boolean): void {
+  aiChatPanel.hidden = !show;
+  if (show) {
+    void refreshAiStatus();
+    aiChatInputEl.focus();
+  }
+}
+
+aiChatBtn.addEventListener("click", () => toggleAiChat(aiChatPanel.hidden));
+aiChatCloseBtn.addEventListener("click", () => toggleAiChat(false));
+aiChatSendBtn.addEventListener("click", () => void sendChatMessage());
+aiChatInputEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void sendChatMessage();
   }
 });
 
