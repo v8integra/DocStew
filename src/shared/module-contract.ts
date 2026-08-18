@@ -72,4 +72,11 @@ export interface DocStewModule {
   peek?(filePath: string): PeekInfo | Promise<PeekInfo>;
   /** Optional: deterministic, non-AI actions the UI can invoke by name (see ModuleOperation). */
   operations?: ModuleOperation[];
+  /** Optional: same shape as ModuleOperation, but for handlers that don't touch
+   * the file on disk at all (e.g. reformatting or validating in-memory text
+   * before the user decides to Save). Routed through a separate IPC channel
+   * that skips the version-history snapshot and reindex `operations` always
+   * triggers — those would be meaningless (and noisy) for a handler that
+   * never writes anything. */
+  queries?: ModuleOperation[];
 }

@@ -170,6 +170,37 @@
             <table id="sheet-grid"></table>
           </div>
         </div>
+
+        <div id="sdata-editor" hidden>
+          <div id="sdata-toolbar">
+            <span id="sdata-format-badge"></span>
+            <span id="sdata-validity"></span>
+            <button id="sdata-toggle-preview">Preview</button>
+            <button id="sdata-pretty-print">Pretty Print</button>
+            <button id="sdata-minify">Minify</button>
+            <span class="pdf-toolbar-sep"></span>
+            <button id="sdata-explain">Explain Structure</button>
+            <button id="sdata-fix">Fix Malformed</button>
+            <select id="sdata-export-format" title="Export format">
+              <option value="json">Export as JSON</option>
+              <option value="xml">Export as XML</option>
+              <option value="yaml">Export as YAML</option>
+              <option value="csv">Export as CSV</option>
+              <option value="txt">Export as Text</option>
+            </select>
+            <button id="sdata-export">Export</button>
+            <button id="sdata-history" title="Version History">History</button>
+            <button id="sdata-save">Save</button>
+            <span id="sdata-save-status"></span>
+          </div>
+          <div id="sdata-summary" hidden>
+            <strong id="sdata-summary-title">Result</strong>
+            <button id="sdata-summary-close" title="Close">&times;</button>
+            <p id="sdata-summary-text"></p>
+          </div>
+          <textarea id="sdata-raw" spellcheck="false"></textarea>
+          <div id="sdata-preview" hidden></div>
+        </div>
       </main>
     </div>
 

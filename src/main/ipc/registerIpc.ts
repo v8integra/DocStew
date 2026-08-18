@@ -272,6 +272,36 @@ export function registerIpc(
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.LIBRARY_RUN_QUERY,
+    async (
+      _event: IpcMainInvokeEvent,
+      fileId: string,
+      queryName: string,
+      args: Record<string, unknown> = {}
+    ) => {
+      const record = library.getFile(fileId);
+      if (!record || !record.moduleId) {
+        return { success: false as const, error: "No module registered for this file type." };
+      }
+      const mod = registry.get(record.moduleId);
+      if (!mod) {
+        return { success: false as const, error: `Module "${record.moduleId}" is not loaded.` };
+      }
+      const query = mod.queries?.find((q) => q.name === queryName);
+      if (!query) {
+        return { success: false as const, error: `Module "${mod.id}" has no query named "${queryName}".` };
+      }
+      try {
+        const handle = await mod.open(record.filePath);
+        const result = await query.handler(handle, args);
+        return { success: true as const, result };
+      } catch (error) {
+        return { success: false as const, error: errorMessage(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.LIBRARY_EXPORT_FILE,
     async (_event: IpcMainInvokeEvent, fileId: string, format: string) => {
       const record = library.getFile(fileId);

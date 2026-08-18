@@ -378,7 +378,8 @@ button:hover {
 #notes-summary,
 #pdf-summary,
 #word-summary,
-#sheet-summary {
+#sheet-summary,
+#sdata-summary {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
@@ -400,7 +401,8 @@ button:hover {
 #notes-summary-text,
 #pdf-summary-text,
 #word-summary-text,
-#sheet-summary-text {
+#sheet-summary-text,
+#sdata-summary-text {
   margin: 6px 0 0;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -409,7 +411,8 @@ button:hover {
 #notes-summary-close,
 #pdf-summary-close,
 #word-summary-close,
-#sheet-summary-close {
+#sheet-summary-close,
+#sdata-summary-close {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -933,4 +936,96 @@ button:hover {
   white-space: pre-wrap;
   line-height: 1.6;
   font-size: 13px;
+}
+
+#sdata-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+}
+
+#sdata-editor[hidden] {
+  display: none;
+}
+
+#sdata-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#sdata-format-badge {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+#sdata-validity {
+  font-size: 12px;
+}
+
+#sdata-validity.sdata-valid {
+  color: #4caf7d;
+}
+
+#sdata-validity.sdata-invalid {
+  color: #e0616b;
+}
+
+#sdata-raw,
+#sdata-preview {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+#sdata-preview {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sd-key {
+  color: #7dabf8;
+}
+
+.sd-string {
+  color: #9bc47d;
+}
+
+.sd-number {
+  color: #d19a66;
+}
+
+.sd-boolean {
+  color: #e0616b;
+}
+
+.sd-null {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.sd-tag {
+  color: #7dabf8;
+}
+
+.sd-comment {
+  color: var(--text-muted);
+  font-style: italic;
 }

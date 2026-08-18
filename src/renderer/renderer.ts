@@ -116,6 +116,14 @@ interface SheetData {
   };
 }
 
+interface StructuredDataData {
+  format: "json" | "xml" | "yaml";
+  raw: string;
+  valid: boolean;
+  error?: string;
+  html: string;
+}
+
 interface FileVersion {
   id: number;
   documentId: string;
@@ -130,6 +138,7 @@ interface DocStewApi {
   saveFile: (id: string, content: unknown) => Promise<SaveFileResult>;
   createFile: (folderPath: string, fileName: string) => Promise<CreateFileResult>;
   runOperation: (fileId: string, opName: string, args?: Record<string, unknown>) => Promise<RunOperationResult>;
+  runQuery: (fileId: string, queryName: string, args?: Record<string, unknown>) => Promise<AiRunToolResult>;
   exportFile: (fileId: string, format: string) => Promise<RunOperationResult>;
   listModules: () => Promise<Array<{ id: string; supportedExtensions: string[] }>>;
   renderMarkdownPreview: (markdown: string) => Promise<{ html: string }>;
@@ -235,6 +244,26 @@ const sheetSummaryEl = document.getElementById("sheet-summary") as HTMLDivElemen
 const sheetSummaryTitleEl = document.getElementById("sheet-summary-title") as HTMLElement;
 const sheetSummaryTextEl = document.getElementById("sheet-summary-text") as HTMLParagraphElement;
 const sheetSummaryCloseBtn = document.getElementById("sheet-summary-close") as HTMLButtonElement;
+
+const sdataEditorEl = document.getElementById("sdata-editor") as HTMLDivElement;
+const sdataFormatBadgeEl = document.getElementById("sdata-format-badge") as HTMLSpanElement;
+const sdataValidityEl = document.getElementById("sdata-validity") as HTMLSpanElement;
+const sdataTogglePreviewBtn = document.getElementById("sdata-toggle-preview") as HTMLButtonElement;
+const sdataPrettyPrintBtn = document.getElementById("sdata-pretty-print") as HTMLButtonElement;
+const sdataMinifyBtn = document.getElementById("sdata-minify") as HTMLButtonElement;
+const sdataExplainBtn = document.getElementById("sdata-explain") as HTMLButtonElement;
+const sdataFixBtn = document.getElementById("sdata-fix") as HTMLButtonElement;
+const sdataExportFormatEl = document.getElementById("sdata-export-format") as HTMLSelectElement;
+const sdataExportBtn = document.getElementById("sdata-export") as HTMLButtonElement;
+const sdataHistoryBtn = document.getElementById("sdata-history") as HTMLButtonElement;
+const sdataSaveBtn = document.getElementById("sdata-save") as HTMLButtonElement;
+const sdataSaveStatusEl = document.getElementById("sdata-save-status") as HTMLSpanElement;
+const sdataSummaryEl = document.getElementById("sdata-summary") as HTMLDivElement;
+const sdataSummaryTitleEl = document.getElementById("sdata-summary-title") as HTMLElement;
+const sdataSummaryTextEl = document.getElementById("sdata-summary-text") as HTMLParagraphElement;
+const sdataSummaryCloseBtn = document.getElementById("sdata-summary-close") as HTMLButtonElement;
+const sdataRawEl = document.getElementById("sdata-raw") as HTMLTextAreaElement;
+const sdataPreviewEl = document.getElementById("sdata-preview") as HTMLDivElement;
 
 const batchHintEl = document.getElementById("batch-hint") as HTMLParagraphElement;
 const batchBarEl = document.getElementById("batch-bar") as HTMLDivElement;
@@ -400,6 +429,7 @@ function showEmpty(message: string): void {
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
@@ -409,6 +439,7 @@ function showGenericContent(text: string): void {
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -419,6 +450,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
 
   currentOpenFileId = file.id;
   currentViewedFileId = file.id;
@@ -458,6 +490,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
     showWordEditor(file, result.rendered.data as WordData);
   } else if (result.rendered.kind === "spreadsheet") {
     showSheetViewer(file, result.rendered.data as SheetData);
+  } else if (result.rendered.kind === "structured-data") {
+    showSdataEditor(file, result.rendered.data as StructuredDataData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -603,6 +637,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   pdfViewerEl.hidden = false;
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
 
   currentPdfFileId = file.id;
   currentViewedFileId = file.id;
@@ -778,6 +813,7 @@ function showWordEditor(file: DocumentRecord, data: WordData): void {
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = false;
   sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
 
   currentWordFileId = file.id;
   currentViewedFileId = file.id;
@@ -1031,6 +1067,7 @@ function showSheetViewer(file: DocumentRecord, data: SheetData): void {
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = false;
+  sdataEditorEl.hidden = true;
 
   currentSheetFileId = file.id;
   currentViewedFileId = file.id;
@@ -1126,6 +1163,174 @@ sheetCleanDataBtn.addEventListener("click", () => void cleanSheetData());
 sheetExportBtn.addEventListener("click", () => void exportCurrentSheet());
 sheetSummaryCloseBtn.addEventListener("click", () => {
   sheetSummaryEl.hidden = true;
+});
+
+// ---- Structured Data editor ----
+
+let currentSdataFileId: string | undefined;
+let sdataPreviewMode = false;
+
+function showSdataEditor(file: DocumentRecord, data: StructuredDataData): void {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = false;
+
+  currentSdataFileId = file.id;
+  currentViewedFileId = file.id;
+  sdataFormatBadgeEl.textContent = data.format.toUpperCase();
+  updateSdataValidity(data.valid, data.error);
+  sdataRawEl.value = data.raw;
+  sdataPreviewEl.innerHTML = data.html;
+  sdataPreviewMode = false;
+  sdataRawEl.hidden = false;
+  sdataPreviewEl.hidden = true;
+  sdataTogglePreviewBtn.textContent = "Preview";
+  sdataSaveStatusEl.textContent = "";
+  sdataSummaryEl.hidden = true;
+}
+
+function updateSdataValidity(valid: boolean, error?: string): void {
+  sdataValidityEl.textContent = valid ? "Valid" : `Invalid: ${error}`;
+  sdataValidityEl.classList.toggle("sdata-valid", valid);
+  sdataValidityEl.classList.toggle("sdata-invalid", !valid);
+}
+
+async function validateSdataRaw(): Promise<void> {
+  if (!currentSdataFileId) return;
+  const result = await window.docstew.runQuery(currentSdataFileId, "prettyPrint", { raw: sdataRawEl.value });
+  updateSdataValidity(result.success, result.success ? undefined : result.error);
+}
+
+async function toggleSdataPreview(): Promise<void> {
+  if (!currentSdataFileId) return;
+  sdataPreviewMode = !sdataPreviewMode;
+  if (sdataPreviewMode) {
+    const result = await window.docstew.runQuery(currentSdataFileId, "highlight", { raw: sdataRawEl.value });
+    if (result.success) {
+      sdataPreviewEl.innerHTML = (result.result as { html: string }).html;
+    }
+    sdataRawEl.hidden = true;
+    sdataPreviewEl.hidden = false;
+    sdataTogglePreviewBtn.textContent = "Edit Source";
+  } else {
+    sdataRawEl.hidden = false;
+    sdataPreviewEl.hidden = true;
+    sdataTogglePreviewBtn.textContent = "Preview";
+  }
+}
+
+async function saveCurrentSdata(): Promise<void> {
+  if (!currentSdataFileId) return;
+  sdataSaveStatusEl.textContent = "Saving...";
+  const result = await window.docstew.saveFile(currentSdataFileId, { raw: sdataRawEl.value });
+  if (result.success) {
+    sdataSaveStatusEl.textContent = "Saved";
+    await validateSdataRaw();
+    await refreshFileList();
+  } else {
+    sdataSaveStatusEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+async function refreshSdataPreviewIfActive(): Promise<void> {
+  if (!currentSdataFileId || !sdataPreviewMode) return;
+  const result = await window.docstew.runQuery(currentSdataFileId, "highlight", { raw: sdataRawEl.value });
+  if (result.success) sdataPreviewEl.innerHTML = (result.result as { html: string }).html;
+}
+
+async function prettyPrintCurrentSdata(): Promise<void> {
+  if (!currentSdataFileId) return;
+  const result = await window.docstew.runQuery(currentSdataFileId, "prettyPrint", { raw: sdataRawEl.value });
+  if (result.success) {
+    sdataRawEl.value = (result.result as { raw: string }).raw;
+    updateSdataValidity(true);
+    await refreshSdataPreviewIfActive();
+  } else {
+    window.alert(`Could not pretty-print: ${result.error}`);
+  }
+}
+
+async function minifyCurrentSdata(): Promise<void> {
+  if (!currentSdataFileId) return;
+  const result = await window.docstew.runQuery(currentSdataFileId, "minify", { raw: sdataRawEl.value });
+  if (result.success) {
+    sdataRawEl.value = (result.result as { raw: string }).raw;
+    updateSdataValidity(true);
+    await refreshSdataPreviewIfActive();
+  } else {
+    window.alert(`Could not minify: ${result.error}`);
+  }
+}
+
+async function explainCurrentSdataStructure(): Promise<void> {
+  if (!currentSdataFileId) return;
+  sdataExplainBtn.disabled = true;
+  sdataExplainBtn.textContent = "Explaining...";
+  const result = await window.docstew.aiRunTool(currentSdataFileId, "explainStructure");
+  sdataExplainBtn.disabled = false;
+  sdataExplainBtn.textContent = "Explain Structure";
+
+  sdataSummaryTitleEl.textContent = "Structure Explanation";
+  sdataSummaryEl.hidden = false;
+  sdataSummaryTextEl.textContent = result.success
+    ? (result.result as { explanation: string }).explanation
+    : `Error: ${result.error}`;
+}
+
+async function fixCurrentSdataMalformed(): Promise<void> {
+  if (!currentSdataFileId) return;
+  sdataFixBtn.disabled = true;
+  sdataFixBtn.textContent = "Fixing...";
+  const result = await window.docstew.aiRunTool(currentSdataFileId, "fixMalformed");
+  sdataFixBtn.disabled = false;
+  sdataFixBtn.textContent = "Fix Malformed";
+
+  if (!result.success) {
+    window.alert(`Could not fix: ${result.error}`);
+    return;
+  }
+  const { fixed, alreadyValid } = result.result as { fixed: string; alreadyValid: boolean };
+  sdataSummaryTitleEl.textContent = alreadyValid ? "Already Valid" : "Suggested Fix";
+  sdataSummaryEl.hidden = false;
+  sdataSummaryTextEl.textContent = alreadyValid
+    ? "This file already parses without errors — nothing to fix."
+    : fixed;
+}
+
+async function exportCurrentSdata(): Promise<void> {
+  if (!currentSdataFileId) return;
+  const format = sdataExportFormatEl.value;
+  sdataExportBtn.disabled = true;
+  sdataExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentSdataFileId, format);
+  sdataExportBtn.disabled = false;
+  sdataExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    sdataSaveStatusEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    sdataSaveStatusEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
+sdataTogglePreviewBtn.addEventListener("click", () => void toggleSdataPreview());
+sdataPrettyPrintBtn.addEventListener("click", () => void prettyPrintCurrentSdata());
+sdataMinifyBtn.addEventListener("click", () => void minifyCurrentSdata());
+sdataExplainBtn.addEventListener("click", () => void explainCurrentSdataStructure());
+sdataFixBtn.addEventListener("click", () => void fixCurrentSdataMalformed());
+sdataExportBtn.addEventListener("click", () => void exportCurrentSdata());
+sdataSaveBtn.addEventListener("click", () => void saveCurrentSdata());
+sdataSummaryCloseBtn.addEventListener("click", () => {
+  sdataSummaryEl.hidden = true;
+});
+let sdataValidateDebounce: ReturnType<typeof setTimeout> | undefined;
+sdataRawEl.addEventListener("input", () => {
+  clearTimeout(sdataValidateDebounce);
+  sdataValidateDebounce = setTimeout(() => void validateSdataRaw(), 400);
 });
 
 // ---- Folder open ----
@@ -1324,6 +1529,9 @@ document.addEventListener("keydown", (event) => {
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !wordEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentWordDoc();
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !sdataEditorEl.hidden) {
+    event.preventDefault();
+    void saveCurrentSdata();
   }
 });
 
@@ -1570,6 +1778,7 @@ notesHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 pdfHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 wordHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sheetHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+sdataHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 
 // ---- Translation review panel ----
 
