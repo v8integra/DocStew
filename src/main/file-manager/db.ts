@@ -32,6 +32,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
   file_name,
   text
 );
+
+-- Full-content snapshots, captured just before a file is about to be
+-- overwritten. Whole-file snapshots rather than diffs — simple and correct
+-- for any file type (binary .xlsx/.docx/.pdf included) without per-format
+-- diff logic, at the cost of disk space (bounded by pruning old versions).
+CREATE TABLE IF NOT EXISTS file_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_id TEXT NOT NULL,
+  content BLOB NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_versions_document_id ON file_versions(document_id, created_at);
 `;
 
 export function openDatabase(dbPath: string): Database.Database {

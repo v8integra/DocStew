@@ -52,6 +52,7 @@
               <option value="html">Export as HTML</option>
             </select>
             <button id="notes-export">Export</button>
+            <button id="notes-history" title="Version History">History</button>
             <button id="notes-save">Save</button>
             <span id="notes-save-status"></span>
           </div>
@@ -84,6 +85,7 @@
               <option value="pdf">Export as PDF (copy)</option>
             </select>
             <button id="pdf-export">Export</button>
+            <button id="pdf-history" title="Version History">History</button>
           </div>
           <div id="pdf-status"></div>
           <div id="pdf-summary" hidden>
@@ -124,6 +126,7 @@
               <option value="txt">Export as Text</option>
             </select>
             <button id="word-export">Export</button>
+            <button id="word-history" title="Version History">History</button>
             <button id="word-save">Save</button>
             <span id="word-save-status"></span>
           </div>
@@ -149,6 +152,7 @@
               <option value="txt">Export as Text</option>
             </select>
             <button id="sheet-export">Export</button>
+            <button id="sheet-history" title="Version History">History</button>
           </div>
           <div id="sheet-formula-bar-row">
             <span id="sheet-cell-ref">—</span>
@@ -193,6 +197,15 @@
         <input id="search-input" type="text" placeholder="Search all documents (full text + file name)..." />
       </div>
       <ul id="search-results"></ul>
+    </div>
+
+    <div id="history-panel" hidden>
+      <div id="history-header">
+        <strong>Version History</strong>
+        <button id="history-close" title="Close">&times;</button>
+      </div>
+      <p id="history-hint">Restoring saves the current content as a new version too, so you can always undo a restore.</p>
+      <ul id="history-list"></ul>
     </div>
   </div>
 

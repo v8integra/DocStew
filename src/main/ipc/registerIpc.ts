@@ -8,6 +8,7 @@ import { renderMarkdownToHtml } from "../markdown";
 import type { EmbeddingIndex } from "../ai-engine/embeddingIndex";
 import { askAboutLibrary } from "../ai-engine/chatService";
 import type { FullTextIndex } from "../search/fullTextIndex";
+import type { VersionHistory } from "../file-manager/versionHistory";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -71,6 +72,7 @@ export function registerIpc(
   library: LibraryManager,
   registry: PluginRegistry,
   fullTextIndex: FullTextIndex,
+  versionHistory: VersionHistory,
   ai: AiEngineHandles = {}
 ): void {
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath?: string) => {
@@ -124,6 +126,7 @@ export function registerIpc(
         return { success: false as const, error: `Module "${record.moduleId}" is not loaded.` };
       }
       try {
+        versionHistory.snapshot(record.id, record.filePath);
         const handle = await mod.open(record.filePath);
         await mod.save(handle, content);
         const updated = library.indexFile(record.filePath);
@@ -246,6 +249,7 @@ export function registerIpc(
         return { success: false as const, error: `Module "${mod.id}" has no operation named "${opName}".` };
       }
       try {
+        versionHistory.snapshot(record.id, record.filePath);
         const handle = await mod.open(record.filePath);
         const result = await operation.handler(handle, args);
 
@@ -304,4 +308,26 @@ export function registerIpc(
       .filter((r): r is DocumentRecord & { snippet: string } => r !== undefined);
     return { results };
   });
+
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_LIST_VERSIONS, async (_event: IpcMainInvokeEvent, fileId: string) => {
+    return versionHistory.list(fileId);
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.LIBRARY_RESTORE_VERSION,
+    async (_event: IpcMainInvokeEvent, fileId: string, versionId: number) => {
+      const record = library.getFile(fileId);
+      if (!record) {
+        return { success: false as const, error: "File not found." };
+      }
+      try {
+        versionHistory.restore(versionId, record.filePath);
+        const updated = library.indexFile(record.filePath);
+        await reindexDocument(updated, registry, fullTextIndex, ai.embeddingIndex);
+        return { success: true as const };
+      } catch (error) {
+        return { success: false as const, error: errorMessage(error) };
+      }
+    }
+  );
 }

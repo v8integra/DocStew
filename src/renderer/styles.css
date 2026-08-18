@@ -776,3 +776,82 @@ button:hover {
   color: var(--accent);
   font-weight: 600;
 }
+
+#history-panel {
+  position: fixed;
+  top: 57px;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+
+#history-panel[hidden] {
+  display: none;
+}
+
+#history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+#history-close {
+  padding: 2px 8px;
+  line-height: 1;
+}
+
+#history-hint {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+#history-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+
+#history-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+#history-list li:hover {
+  background: var(--bg-hover);
+}
+
+.history-entry-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-entry-size {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-restore-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+}

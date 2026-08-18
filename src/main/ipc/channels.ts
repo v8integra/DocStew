@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   LIBRARY_RUN_OPERATION: "library:runOperation",
   LIBRARY_EXPORT_FILE: "library:exportFile",
   LIBRARY_SEARCH: "library:search",
+  LIBRARY_LIST_VERSIONS: "library:listVersions",
+  LIBRARY_RESTORE_VERSION: "library:restoreVersion",
   REGISTRY_LIST_MODULES: "registry:listModules",
   NOTES_RENDER_PREVIEW: "notes:renderPreview",
   AI_STATUS: "ai:status",

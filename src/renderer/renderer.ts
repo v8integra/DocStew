@@ -116,6 +116,13 @@ interface SheetData {
   };
 }
 
+interface FileVersion {
+  id: number;
+  documentId: string;
+  sizeBytes: number;
+  createdAt: number;
+}
+
 interface DocStewApi {
   openFolder: (folderPath?: string) => Promise<OpenFolderResult>;
   listFiles: () => Promise<DocumentRecord[]>;
@@ -131,6 +138,8 @@ interface DocStewApi {
   aiRunTool: (fileId: string, toolName: string, args?: Record<string, unknown>) => Promise<AiRunToolResult>;
   pdfReadBytes: (fileId: string) => Promise<Uint8Array>;
   search: (query: string) => Promise<{ results: Array<DocumentRecord & { snippet: string }> }>;
+  listVersions: (fileId: string) => Promise<FileVersion[]>;
+  restoreVersion: (fileId: string, versionId: number) => Promise<SaveFileResult>;
 }
 
 interface Window {
@@ -240,8 +249,21 @@ const searchCloseBtn = document.getElementById("search-close") as HTMLButtonElem
 const searchInputEl = document.getElementById("search-input") as HTMLInputElement;
 const searchResultsEl = document.getElementById("search-results") as HTMLUListElement;
 
+const historyPanelEl = document.getElementById("history-panel") as HTMLDivElement;
+const historyCloseBtn = document.getElementById("history-close") as HTMLButtonElement;
+const historyListEl = document.getElementById("history-list") as HTMLUListElement;
+const notesHistoryBtn = document.getElementById("notes-history") as HTMLButtonElement;
+const pdfHistoryBtn = document.getElementById("pdf-history") as HTMLButtonElement;
+const wordHistoryBtn = document.getElementById("word-history") as HTMLButtonElement;
+const sheetHistoryBtn = document.getElementById("sheet-history") as HTMLButtonElement;
+
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
+// Set by every show*Viewer/Editor function alongside its own type-specific
+// variable (currentPdfFileId, currentWordFileId, etc.) — History is a
+// cross-cutting feature that needs to know "whatever's open right now"
+// without caring which viewer that is.
+let currentViewedFileId: string | undefined;
 let notesPreviewMode = false;
 
 // ---- Sidebar / library ----
@@ -388,6 +410,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   sheetViewerEl.hidden = true;
 
   currentOpenFileId = file.id;
+  currentViewedFileId = file.id;
   notesTitleEl.value = data.title;
   notesTagsEl.value = data.tags.join(", ");
   notesBodyEl.value = data.body;
@@ -571,6 +594,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   sheetViewerEl.hidden = true;
 
   currentPdfFileId = file.id;
+  currentViewedFileId = file.id;
   currentPdfPageNum = 1;
   currentPdfDoc = null;
   pdfSummaryEl.hidden = true;
@@ -745,6 +769,7 @@ function showWordEditor(file: DocumentRecord, data: WordData): void {
   sheetViewerEl.hidden = true;
 
   currentWordFileId = file.id;
+  currentViewedFileId = file.id;
   wordContentEl.innerHTML = data.html;
   wordSaveStatusEl.textContent = "";
   wordSummaryEl.hidden = true;
@@ -997,6 +1022,7 @@ function showSheetViewer(file: DocumentRecord, data: SheetData): void {
   sheetViewerEl.hidden = false;
 
   currentSheetFileId = file.id;
+  currentViewedFileId = file.id;
   currentSheetData = data;
   selectedCellRef = undefined;
   sheetCellRefEl.textContent = "—";
@@ -1277,6 +1303,8 @@ document.addEventListener("keydown", (event) => {
     toggleAiChat(false);
   } else if (event.key === "Escape" && !searchPanelEl.hidden) {
     toggleSearchPanel(false);
+  } else if (event.key === "Escape" && !historyPanelEl.hidden) {
+    toggleHistoryPanel(false);
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !notesEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentNote();
@@ -1451,5 +1479,83 @@ searchInputEl.addEventListener("input", () => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => void runSearch(), 200);
 });
+
+// ---- Version History ----
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function renderHistoryList(): Promise<void> {
+  historyListEl.innerHTML = "";
+  if (!currentViewedFileId) {
+    const li = document.createElement("li");
+    li.textContent = "No file is open.";
+    historyListEl.appendChild(li);
+    return;
+  }
+  const versions = await window.docstew.listVersions(currentViewedFileId);
+  if (versions.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No earlier versions yet — versions are saved automatically when you edit.";
+    historyListEl.appendChild(li);
+    return;
+  }
+  for (const version of versions) {
+    const li = document.createElement("li");
+
+    const meta = document.createElement("div");
+    meta.className = "history-entry-meta";
+    const time = document.createElement("span");
+    time.textContent = new Date(version.createdAt).toLocaleString();
+    meta.appendChild(time);
+    const size = document.createElement("span");
+    size.className = "history-entry-size";
+    size.textContent = formatBytes(version.sizeBytes);
+    meta.appendChild(size);
+    li.appendChild(meta);
+
+    const restoreBtn = document.createElement("button");
+    restoreBtn.className = "history-restore-btn";
+    restoreBtn.textContent = "Restore";
+    restoreBtn.addEventListener("click", () => void restoreHistoryVersion(version.id));
+    li.appendChild(restoreBtn);
+
+    historyListEl.appendChild(li);
+  }
+}
+
+async function restoreHistoryVersion(versionId: number): Promise<void> {
+  if (!currentViewedFileId) return;
+  if (
+    !window.confirm(
+      "Restore this version? The current content will be saved as a version first, so you can undo this."
+    )
+  ) {
+    return;
+  }
+  const result = await window.docstew.restoreVersion(currentViewedFileId, versionId);
+  if (!result.success) {
+    window.alert(`Could not restore: ${result.error}`);
+    return;
+  }
+  await renderHistoryList();
+  const files = await window.docstew.listFiles();
+  const record = files.find((f) => f.id === currentViewedFileId);
+  if (record) await selectFile(record);
+}
+
+function toggleHistoryPanel(show: boolean): void {
+  historyPanelEl.hidden = !show;
+  if (show) void renderHistoryList();
+}
+
+historyCloseBtn.addEventListener("click", () => toggleHistoryPanel(false));
+notesHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+pdfHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+wordHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+sheetHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 
 refreshFileList();
