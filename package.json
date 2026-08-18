@@ -1,0 +1,52 @@
+{
+  "name": "docstew",
+  "version": "0.1.0",
+  "description": "A local-first, modular document studio with a built-in local AI.",
+  "main": "dist/src/main/main.js",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.js",
+    "start": "npm run build && electron .",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "package": "npm run build && electron-builder --win"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0"
+  },
+  "build": {
+    "appId": "com.docstew.app",
+    "productName": "DocStew",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.test.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": true
+    }
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "electron@33.4.11": true,
+    "electron-winstaller@5.4.0": true
+  }
+}
