@@ -109,6 +109,33 @@
           </div>
           <div id="word-content" contenteditable="true"></div>
         </div>
+
+        <div id="sheet-viewer" hidden>
+          <div id="sheet-toolbar">
+            <span id="sheet-info"></span>
+            <button id="sheet-generate-formula">Generate Formula</button>
+            <button id="sheet-clean-data">Clean Data</button>
+            <span class="pdf-toolbar-sep"></span>
+            <select id="sheet-export-format" title="Export format">
+              <option value="xlsx">Export as XLSX</option>
+              <option value="csv">Export as CSV</option>
+              <option value="txt">Export as Text</option>
+            </select>
+            <button id="sheet-export">Export</button>
+          </div>
+          <div id="sheet-formula-bar-row">
+            <span id="sheet-cell-ref">—</span>
+            <input id="sheet-formula-bar" type="text" placeholder="Select a cell to edit its value or formula" disabled />
+          </div>
+          <div id="sheet-summary" hidden>
+            <strong id="sheet-summary-title">Result</strong>
+            <button id="sheet-summary-close" title="Close">&times;</button>
+            <p id="sheet-summary-text"></p>
+          </div>
+          <div id="sheet-grid-wrap">
+            <table id="sheet-grid"></table>
+          </div>
+        </div>
       </main>
     </div>
 

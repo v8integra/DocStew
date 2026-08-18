@@ -99,6 +99,23 @@ type WordBlock =
   | { type: "numberItem"; runs: WordRun[] }
   | { type: "table"; rows: WordRun[][][] };
 
+interface SheetCell {
+  value: string | number | boolean | null;
+  formula?: string;
+  display: string;
+}
+
+interface SheetData {
+  sheetNames: string[];
+  activeSheetIndex: number;
+  activeSheet: {
+    name: string;
+    rowCount: number;
+    colCount: number;
+    cells: Record<string, SheetCell>;
+  };
+}
+
 interface DocStewApi {
   openFolder: (folderPath?: string) => Promise<OpenFolderResult>;
   listFiles: () => Promise<DocumentRecord[]>;
@@ -191,6 +208,20 @@ const wordSummaryTitleEl = document.getElementById("word-summary-title") as HTML
 const wordSummaryTextEl = document.getElementById("word-summary-text") as HTMLParagraphElement;
 const wordSummaryCloseBtn = document.getElementById("word-summary-close") as HTMLButtonElement;
 
+const sheetViewerEl = document.getElementById("sheet-viewer") as HTMLDivElement;
+const sheetInfoEl = document.getElementById("sheet-info") as HTMLSpanElement;
+const sheetGridEl = document.getElementById("sheet-grid") as HTMLTableElement;
+const sheetCellRefEl = document.getElementById("sheet-cell-ref") as HTMLSpanElement;
+const sheetFormulaBarEl = document.getElementById("sheet-formula-bar") as HTMLInputElement;
+const sheetGenerateFormulaBtn = document.getElementById("sheet-generate-formula") as HTMLButtonElement;
+const sheetCleanDataBtn = document.getElementById("sheet-clean-data") as HTMLButtonElement;
+const sheetExportFormatEl = document.getElementById("sheet-export-format") as HTMLSelectElement;
+const sheetExportBtn = document.getElementById("sheet-export") as HTMLButtonElement;
+const sheetSummaryEl = document.getElementById("sheet-summary") as HTMLDivElement;
+const sheetSummaryTitleEl = document.getElementById("sheet-summary-title") as HTMLElement;
+const sheetSummaryTextEl = document.getElementById("sheet-summary-text") as HTMLParagraphElement;
+const sheetSummaryCloseBtn = document.getElementById("sheet-summary-close") as HTMLButtonElement;
+
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
 let notesPreviewMode = false;
@@ -249,6 +280,7 @@ function showEmpty(message: string): void {
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
@@ -257,6 +289,7 @@ function showGenericContent(text: string): void {
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -266,6 +299,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   notesEditorEl.hidden = false;
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
 
   currentOpenFileId = file.id;
   notesTitleEl.value = data.title;
@@ -302,6 +336,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
     await showPdfViewer(file, result.rendered.data as PdfData);
   } else if (result.rendered.kind === "word") {
     showWordEditor(file, result.rendered.data as WordData);
+  } else if (result.rendered.kind === "spreadsheet") {
+    showSheetViewer(file, result.rendered.data as SheetData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -429,6 +465,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = false;
   wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
 
   currentPdfFileId = file.id;
   currentPdfPageNum = 1;
@@ -585,6 +622,7 @@ function showWordEditor(file: DocumentRecord, data: WordData): void {
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = true;
   wordEditorEl.hidden = false;
+  sheetViewerEl.hidden = true;
 
   currentWordFileId = file.id;
   wordContentEl.innerHTML = data.html;
@@ -760,6 +798,177 @@ wordRewriteBtn.addEventListener("click", () => void rewriteCurrentWordDoc());
 wordToneBtn.addEventListener("click", () => void adjustToneOfCurrentWordDoc());
 wordSummaryCloseBtn.addEventListener("click", () => {
   wordSummaryEl.hidden = true;
+});
+
+// ---- Spreadsheet viewer ----
+
+let currentSheetFileId: string | undefined;
+let currentSheetData: SheetData | undefined;
+let selectedCellRef: string | undefined;
+
+function colLetter(col: number): string {
+  let letters = "";
+  let n = col;
+  while (n > 0) {
+    const remainder = (n - 1) % 26;
+    letters = String.fromCharCode(65 + remainder) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
+function renderSheetGrid(data: SheetData): void {
+  const { activeSheet } = data;
+  sheetGridEl.innerHTML = "";
+
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  const corner = document.createElement("th");
+  corner.className = "corner-header";
+  headerRow.appendChild(corner);
+  for (let col = 1; col <= activeSheet.colCount; col++) {
+    const th = document.createElement("th");
+    th.textContent = colLetter(col);
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  sheetGridEl.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let row = 1; row <= activeSheet.rowCount; row++) {
+    const tr = document.createElement("tr");
+    const rowHeader = document.createElement("th");
+    rowHeader.className = "row-header";
+    rowHeader.textContent = String(row);
+    tr.appendChild(rowHeader);
+    for (let col = 1; col <= activeSheet.colCount; col++) {
+      const ref = `${colLetter(col)}${row}`;
+      const td = document.createElement("td");
+      td.dataset.ref = ref;
+      const cell = activeSheet.cells[ref];
+      td.textContent = cell ? cell.display : "";
+      if (ref === selectedCellRef) td.classList.add("selected");
+      td.addEventListener("click", () => selectCell(ref));
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  sheetGridEl.appendChild(tbody);
+}
+
+function selectCell(ref: string): void {
+  selectedCellRef = ref;
+  sheetCellRefEl.textContent = ref;
+  sheetFormulaBarEl.disabled = false;
+  const cell = currentSheetData?.activeSheet.cells[ref];
+  sheetFormulaBarEl.value = cell ? (cell.formula !== undefined ? `=${cell.formula}` : String(cell.value ?? "")) : "";
+  sheetFormulaBarEl.focus();
+  for (const td of sheetGridEl.querySelectorAll("td")) {
+    (td as HTMLElement).classList.toggle("selected", (td as HTMLElement).dataset.ref === ref);
+  }
+}
+
+function showSheetViewer(file: DocumentRecord, data: SheetData): void {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = false;
+
+  currentSheetFileId = file.id;
+  currentSheetData = data;
+  selectedCellRef = undefined;
+  sheetCellRefEl.textContent = "—";
+  sheetFormulaBarEl.value = "";
+  sheetFormulaBarEl.disabled = true;
+  sheetSummaryEl.hidden = true;
+  sheetInfoEl.textContent =
+    data.sheetNames.length > 1
+      ? `Showing "${data.activeSheet.name}" (1 of ${data.sheetNames.length} sheets in this workbook)`
+      : `Sheet: ${data.activeSheet.name}`;
+
+  renderSheetGrid(data);
+}
+
+async function commitFormulaBar(): Promise<void> {
+  if (!currentSheetFileId || !selectedCellRef) return;
+  const ref = selectedCellRef;
+  const result = await window.docstew.runOperation(currentSheetFileId, "setCell", {
+    ref,
+    input: sheetFormulaBarEl.value,
+  });
+  if (result.success && result.result) {
+    currentSheetData = (result.result as { renderData: SheetData }).renderData;
+    renderSheetGrid(currentSheetData);
+    selectCell(ref);
+  } else {
+    sheetInfoEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+sheetFormulaBarEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void commitFormulaBar();
+  } else if (event.key === "Escape" && selectedCellRef) {
+    selectCell(selectedCellRef);
+  }
+});
+
+async function generateFormulaForSheet(): Promise<void> {
+  if (!currentSheetFileId) return;
+  const instruction = window.prompt("Describe the formula you want (plain English):", "");
+  if (!instruction) return;
+  sheetGenerateFormulaBtn.disabled = true;
+  sheetGenerateFormulaBtn.textContent = "Generating...";
+  const result = await window.docstew.aiRunTool(currentSheetFileId, "generateFormula", { instruction });
+  sheetGenerateFormulaBtn.disabled = false;
+  sheetGenerateFormulaBtn.textContent = "Generate Formula";
+
+  sheetSummaryTitleEl.textContent = "Generated Formula";
+  sheetSummaryEl.hidden = false;
+  sheetSummaryTextEl.textContent = result.success
+    ? (result.result as { formula: string }).formula
+    : `Error: ${result.error}`;
+}
+
+async function cleanSheetData(): Promise<void> {
+  if (!currentSheetFileId) return;
+  sheetCleanDataBtn.disabled = true;
+  sheetCleanDataBtn.textContent = "Analyzing...";
+  const result = await window.docstew.aiRunTool(currentSheetFileId, "cleanData");
+  sheetCleanDataBtn.disabled = false;
+  sheetCleanDataBtn.textContent = "Clean Data";
+
+  sheetSummaryTitleEl.textContent = "Data Cleanup Report";
+  sheetSummaryEl.hidden = false;
+  sheetSummaryTextEl.textContent = result.success
+    ? (result.result as { report: string }).report
+    : `Error: ${result.error}`;
+}
+
+async function exportCurrentSheet(): Promise<void> {
+  if (!currentSheetFileId) return;
+  const format = sheetExportFormatEl.value;
+  sheetExportBtn.disabled = true;
+  sheetExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentSheetFileId, format);
+  sheetExportBtn.disabled = false;
+  sheetExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    sheetInfoEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    sheetInfoEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
+sheetGenerateFormulaBtn.addEventListener("click", () => void generateFormulaForSheet());
+sheetCleanDataBtn.addEventListener("click", () => void cleanSheetData());
+sheetExportBtn.addEventListener("click", () => void exportCurrentSheet());
+sheetSummaryCloseBtn.addEventListener("click", () => {
+  sheetSummaryEl.hidden = true;
 });
 
 // ---- Folder open ----
