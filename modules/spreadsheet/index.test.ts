@@ -181,6 +181,23 @@ test("cleanData aiTool reports on real sheet content via the fake model", async 
   setModels({});
 });
 
+test("translate aiTool translates the active sheet's CSV text", async () => {
+  const filePath = await makeTestWorkbook([{ name: "Sheet1", cells: [{ ref: "A1", value: "hello" }] }]);
+  const handle = await spreadsheetModule.open(filePath);
+  const tool = spreadsheetModule.aiTools.find((t) => t.name === "translate")!;
+
+  await withFakeOllamaServer(fakeChatHandler("hola"), async () => {
+    setModels({ chatModel: "fake-model" });
+    const result = (await tool.handler(handle, { targetLanguage: "es" })) as {
+      translated: string;
+      targetLanguage: string;
+    };
+    assert.equal(result.translated, "hola");
+    assert.equal(result.targetLanguage, "Spanish");
+  });
+  setModels({});
+});
+
 test("aiTools refuse with a clear error when no chat model is configured", async () => {
   const filePath = await makeTestWorkbook([{ name: "Sheet1", cells: [] }]);
   const handle = await spreadsheetModule.open(filePath);

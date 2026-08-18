@@ -143,3 +143,21 @@ test("summarize tool short-circuits for an empty note without calling the model"
   assert.match(result.summary, /nothing to summarize/);
   setModels({});
 });
+
+test("translate tool translates the note body via the configured chat model", async () => {
+  const filePath = tempNotePath();
+  fs.writeFileSync(filePath, "---\ntitle: T\ntags: []\n---\nHello world");
+  const handle = await notesModule.open(filePath);
+  const translateTool = notesModule.aiTools.find((t) => t.name === "translate")!;
+
+  await withFakeOllamaServer(fakeChatHandler("Hola mundo"), async () => {
+    setModels({ chatModel: "fake-model" });
+    const result = (await translateTool.handler(handle, { targetLanguage: "es" })) as {
+      translated: string;
+      targetLanguage: string;
+    };
+    assert.equal(result.translated, "Hola mundo");
+    assert.equal(result.targetLanguage, "Spanish");
+  });
+  setModels({});
+});

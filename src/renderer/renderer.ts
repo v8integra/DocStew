@@ -257,6 +257,17 @@ const pdfHistoryBtn = document.getElementById("pdf-history") as HTMLButtonElemen
 const wordHistoryBtn = document.getElementById("word-history") as HTMLButtonElement;
 const sheetHistoryBtn = document.getElementById("sheet-history") as HTMLButtonElement;
 
+const translationBackdropEl = document.getElementById("translation-backdrop") as HTMLDivElement;
+const translationPanelEl = document.getElementById("translation-panel") as HTMLDivElement;
+const translationCloseBtn = document.getElementById("translation-close") as HTMLButtonElement;
+const translationTitleEl = document.getElementById("translation-title") as HTMLElement;
+const translationTargetLabelEl = document.getElementById("translation-target-label") as HTMLElement;
+const translationOriginalEl = document.getElementById("translation-original") as HTMLDivElement;
+const translationTranslatedEl = document.getElementById("translation-translated") as HTMLDivElement;
+const notesTranslateBtn = document.getElementById("notes-translate") as HTMLButtonElement;
+const wordTranslateBtn = document.getElementById("word-translate") as HTMLButtonElement;
+const sheetTranslateBtn = document.getElementById("sheet-translate") as HTMLButtonElement;
+
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
 // Set by every show*Viewer/Editor function alongside its own type-specific
@@ -1305,6 +1316,8 @@ document.addEventListener("keydown", (event) => {
     toggleSearchPanel(false);
   } else if (event.key === "Escape" && !historyPanelEl.hidden) {
     toggleHistoryPanel(false);
+  } else if (event.key === "Escape" && !translationPanelEl.hidden) {
+    closeTranslationPanel();
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !notesEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentNote();
@@ -1557,5 +1570,55 @@ notesHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 pdfHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 wordHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sheetHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+
+// ---- Translation review panel ----
+
+interface TranslationToolResult {
+  original: string;
+  translated: string;
+  targetLanguage: string;
+}
+
+function closeTranslationPanel(): void {
+  translationPanelEl.hidden = true;
+  translationBackdropEl.hidden = true;
+}
+
+function openTranslationPanel(data: TranslationToolResult): void {
+  translationTitleEl.textContent = `Translation: ${data.targetLanguage}`;
+  translationTargetLabelEl.textContent = data.targetLanguage;
+  translationOriginalEl.textContent = data.original;
+  translationTranslatedEl.textContent = data.translated;
+  translationPanelEl.hidden = false;
+  translationBackdropEl.hidden = false;
+}
+
+async function runTranslateTool(fileId: string, button: HTMLButtonElement): Promise<void> {
+  const targetLanguage = window.prompt("Translate to which language?", "Spanish");
+  if (!targetLanguage) return;
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Translating...";
+  const result = await window.docstew.aiRunTool(fileId, "translate", { targetLanguage });
+  button.disabled = false;
+  button.textContent = originalLabel;
+  if (result.success) {
+    openTranslationPanel(result.result as TranslationToolResult);
+  } else {
+    window.alert(`Translation failed: ${result.error}`);
+  }
+}
+
+translationCloseBtn.addEventListener("click", closeTranslationPanel);
+translationBackdropEl.addEventListener("click", closeTranslationPanel);
+notesTranslateBtn.addEventListener("click", () => {
+  if (currentOpenFileId) void runTranslateTool(currentOpenFileId, notesTranslateBtn);
+});
+wordTranslateBtn.addEventListener("click", () => {
+  if (currentWordFileId) void runTranslateTool(currentWordFileId, wordTranslateBtn);
+});
+sheetTranslateBtn.addEventListener("click", () => {
+  if (currentSheetFileId) void runTranslateTool(currentSheetFileId, sheetTranslateBtn);
+});
 
 refreshFileList();

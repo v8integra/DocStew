@@ -5,6 +5,7 @@ import { buildRenderData, sheetToCsvText } from "./renderData";
 import type { WorkbookData } from "./sheetModel";
 import { chat } from "../../src/main/ai-engine/ollamaClient";
 import { getChatModel } from "../../src/main/ai-engine/config";
+import { translateText } from "../../src/main/translation/translationService";
 import type {
   AITool,
   DocStewModule,
@@ -102,6 +103,19 @@ const cleanDataTool: AITool = {
   },
 };
 
+const translateTool: AITool = {
+  name: "translate",
+  description: "Translate the active sheet's text content into another language.",
+  parameters: { targetLanguage: { type: "string" }, sourceLanguage: { type: "string" } },
+  async handler(handle: DocumentHandle, args: Record<string, unknown>): Promise<unknown> {
+    const targetLanguage = String(args.targetLanguage ?? "").trim();
+    const sourceLanguage = args.sourceLanguage ? String(args.sourceLanguage).trim() : undefined;
+    const workbook = await loadAndRecalculate(handle.filePath);
+    const sheetText = truncate(sheetToCsvText(workbook.sheets[ACTIVE_SHEET_INDEX]));
+    return translateText(sheetText, targetLanguage, sourceLanguage);
+  },
+};
+
 const setCellOperation: ModuleOperation = {
   name: "setCell",
   description: "Set a cell's value or formula and recalculate the sheet.",
@@ -175,7 +189,7 @@ const spreadsheetModule: DocStewModule = {
     return { title };
   },
 
-  aiTools: [generateFormulaTool, cleanDataTool],
+  aiTools: [generateFormulaTool, cleanDataTool, translateTool],
   operations: [setCellOperation],
 };
 

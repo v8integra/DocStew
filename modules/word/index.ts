@@ -6,6 +6,7 @@ import { blocksToDocxBuffer } from "./blocksToDocx";
 import type { WordBlock } from "./wordBlocks";
 import { chat } from "../../src/main/ai-engine/ollamaClient";
 import { getChatModel } from "../../src/main/ai-engine/config";
+import { translateText } from "../../src/main/translation/translationService";
 import { htmlToPdfBuffer } from "../../src/main/htmlToPdf";
 import type {
   AITool,
@@ -106,6 +107,18 @@ const toneAdjustTool: AITool = {
   },
 };
 
+const translateTool: AITool = {
+  name: "translate",
+  description: "Translate this document's text into another language.",
+  parameters: { targetLanguage: { type: "string" }, sourceLanguage: { type: "string" } },
+  async handler(handle: DocumentHandle, args: Record<string, unknown>): Promise<unknown> {
+    const targetLanguage = String(args.targetLanguage ?? "").trim();
+    const sourceLanguage = args.sourceLanguage ? String(args.sourceLanguage).trim() : undefined;
+    const text = truncate(await extractRawText(handle.filePath));
+    return translateText(text, targetLanguage, sourceLanguage);
+  },
+};
+
 const wordModule: DocStewModule = {
   id: "word",
   supportedExtensions: [".docx"],
@@ -149,7 +162,7 @@ const wordModule: DocStewModule = {
     return { title: firstNonEmptyLine(text) };
   },
 
-  aiTools: [summarizeTool, rewriteTool, toneAdjustTool],
+  aiTools: [summarizeTool, rewriteTool, toneAdjustTool, translateTool],
 };
 
 export default wordModule;

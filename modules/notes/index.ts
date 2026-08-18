@@ -3,6 +3,7 @@ import * as path from "path";
 import { renderMarkdownToHtml } from "../../src/main/markdown";
 import { chat } from "../../src/main/ai-engine/ollamaClient";
 import { getChatModel } from "../../src/main/ai-engine/config";
+import { translateText } from "../../src/main/translation/translationService";
 import { parseNote, serializeNote, type ParsedNote } from "./frontmatter";
 import type { AITool, DocStewModule, DocumentHandle, PeekInfo, RenderDescriptor, SearchableText } from "../../src/shared/module-contract";
 
@@ -40,6 +41,18 @@ const summarizeTool: AITool = {
       { role: "user", content: note.body },
     ]);
     return { summary: summary.trim() };
+  },
+};
+
+const translateTool: AITool = {
+  name: "translate",
+  description: "Translate this note's body text into another language.",
+  parameters: { targetLanguage: { type: "string" }, sourceLanguage: { type: "string" } },
+  async handler(handle: DocumentHandle, args: Record<string, unknown>): Promise<unknown> {
+    const targetLanguage = String(args.targetLanguage ?? "").trim();
+    const sourceLanguage = args.sourceLanguage ? String(args.sourceLanguage).trim() : undefined;
+    const note = readAndParse(handle.filePath);
+    return translateText(note.body, targetLanguage, sourceLanguage);
   },
 };
 
@@ -97,7 +110,7 @@ const notesModule: DocStewModule = {
     return { title: note.title, tags: note.tags };
   },
 
-  aiTools: [summarizeTool],
+  aiTools: [summarizeTool, translateTool],
 };
 
 export default notesModule;

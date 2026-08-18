@@ -142,6 +142,23 @@ test("toneAdjust aiTool rewrites using the given tone", async () => {
   setModels({});
 });
 
+test("translate aiTool translates the extracted document text", async () => {
+  const filePath = await makeTestDocx({ title: "T", paragraphs: ["Hello world"] });
+  const handle = await wordModule.open(filePath);
+  const tool = wordModule.aiTools.find((t) => t.name === "translate")!;
+
+  await withFakeOllamaServer(fakeChatHandler("Hola mundo"), async () => {
+    setModels({ chatModel: "fake-model" });
+    const result = (await tool.handler(handle, { targetLanguage: "es" })) as {
+      translated: string;
+      targetLanguage: string;
+    };
+    assert.equal(result.translated, "Hola mundo");
+    assert.equal(result.targetLanguage, "Spanish");
+  });
+  setModels({});
+});
+
 test("aiTools refuse with a clear error when no chat model is configured", async () => {
   const filePath = await makeTestDocx({ title: "T" });
   const handle = await wordModule.open(filePath);

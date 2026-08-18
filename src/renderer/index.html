@@ -46,6 +46,7 @@
             <input id="notes-tags" type="text" placeholder="tags, comma, separated" />
             <button id="notes-toggle-preview">Preview</button>
             <button id="notes-summarize">Summarize</button>
+            <button id="notes-translate">Translate</button>
             <select id="notes-export-format" title="Export format">
               <option value="md">Export as Markdown</option>
               <option value="txt">Export as Text</option>
@@ -120,6 +121,7 @@
             <button id="word-summarize">Summarize</button>
             <button id="word-rewrite">Rewrite</button>
             <button id="word-tone">Adjust Tone</button>
+            <button id="word-translate">Translate</button>
             <select id="word-export-format" title="Export format">
               <option value="pdf">Export as PDF</option>
               <option value="md">Export as Markdown</option>
@@ -145,6 +147,7 @@
             <span id="sheet-info"></span>
             <button id="sheet-generate-formula">Generate Formula</button>
             <button id="sheet-clean-data">Clean Data</button>
+            <button id="sheet-translate">Translate</button>
             <span class="pdf-toolbar-sep"></span>
             <select id="sheet-export-format" title="Export format">
               <option value="xlsx">Export as XLSX</option>
@@ -197,6 +200,24 @@
         <input id="search-input" type="text" placeholder="Search all documents (full text + file name)..." />
       </div>
       <ul id="search-results"></ul>
+    </div>
+
+    <div id="translation-backdrop" hidden></div>
+    <div id="translation-panel" hidden>
+      <div id="translation-header">
+        <strong id="translation-title">Translation</strong>
+        <button id="translation-close" title="Close">&times;</button>
+      </div>
+      <div id="translation-columns">
+        <div class="translation-column">
+          <h3>Original</h3>
+          <div id="translation-original" class="translation-text"></div>
+        </div>
+        <div class="translation-column">
+          <h3 id="translation-target-label">Translated</h3>
+          <div id="translation-translated" class="translation-text"></div>
+        </div>
+      </div>
     </div>
 
     <div id="history-panel" hidden>
