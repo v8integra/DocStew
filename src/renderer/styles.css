@@ -95,9 +95,6 @@ button:hover {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 #file-list li:hover,
@@ -105,9 +102,31 @@ button:hover {
   background: var(--bg-hover);
 }
 
+.file-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 #file-list .module-tag {
   color: var(--text-muted);
   font-size: 11px;
+  flex-shrink: 0;
+}
+
+.file-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tag-pill {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
 }
 
 #main-pane {
@@ -124,6 +143,79 @@ button:hover {
   white-space: pre-wrap;
   font-family: inherit;
   margin: 0;
+}
+
+#notes-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 12px;
+}
+
+/* An author-stylesheet `display` rule outranks the user-agent's default
+   [hidden] { display: none }, so toggling the `hidden` property alone
+   wouldn't actually hide this element without restating it here. */
+#notes-editor[hidden] {
+  display: none;
+}
+
+#notes-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#notes-title {
+  font-size: 16px;
+  font-weight: 600;
+  flex: 1;
+}
+
+#notes-tags {
+  flex: 1;
+  font-size: 13px;
+}
+
+#notes-title,
+#notes-tags {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+#notes-save-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  min-width: 80px;
+}
+
+#notes-body {
+  flex: 1;
+  resize: none;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#notes-preview {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 24px;
+  line-height: 1.6;
+}
+
+#notes-preview :first-child {
+  margin-top: 0;
 }
 
 #command-palette {

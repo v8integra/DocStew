@@ -23,6 +23,18 @@
       <main id="main-pane">
         <p id="empty-state">Open a folder to get started, or select a file from the library.</p>
         <pre id="content-view" hidden></pre>
+
+        <div id="notes-editor" hidden>
+          <div id="notes-editor-toolbar">
+            <input id="notes-title" type="text" placeholder="Title" />
+            <input id="notes-tags" type="text" placeholder="tags, comma, separated" />
+            <button id="notes-toggle-preview">Preview</button>
+            <button id="notes-save">Save</button>
+            <span id="notes-save-status"></span>
+          </div>
+          <textarea id="notes-body" placeholder="Write in Markdown..."></textarea>
+          <div id="notes-preview" hidden></div>
+        </div>
       </main>
     </div>
 

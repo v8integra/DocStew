@@ -37,12 +37,57 @@ test("openFolder() indexes top-level files and resolves module ids by extension"
 
   const records = library.openFolder(dir);
 
-  assert.equal(records.length, 2, "should skip the subfolder and only index files");
+  assert.equal(records.length, 2, "the subfolder is empty, so only the two top-level files are indexed");
   const notes = records.find((r) => r.fileName === "notes.txt");
   const report = records.find((r) => r.fileName === "report.pdf");
   assert.equal(notes?.moduleId, "dummy");
   assert.equal(report?.moduleId, null);
   assert.equal(notes?.sizeBytes, "hello world".length);
+});
+
+test("openFolder() recurses into nested subfolders", () => {
+  const dir = makeTempFolder();
+  fs.writeFileSync(path.join(dir, "a-subfolder", "nested.txt"), "deep");
+  fs.mkdirSync(path.join(dir, "a-subfolder", "deeper"));
+  fs.writeFileSync(path.join(dir, "a-subfolder", "deeper", "deepest.txt"), "deepest");
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+
+  const records = library.openFolder(dir);
+
+  assert.deepEqual(
+    records.map((r) => r.fileName).sort(),
+    ["deepest.txt", "nested.txt", "notes.txt", "report.pdf"]
+  );
+});
+
+test("openFolder() skips dotfolders and node_modules", () => {
+  const dir = makeTempFolder();
+  fs.mkdirSync(path.join(dir, ".git"));
+  fs.writeFileSync(path.join(dir, ".git", "config"), "should not be indexed");
+  fs.mkdirSync(path.join(dir, "node_modules"));
+  fs.writeFileSync(path.join(dir, "node_modules", "pkg.json"), "should not be indexed");
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+
+  const records = library.openFolder(dir);
+
+  assert.deepEqual(records.map((r) => r.fileName).sort(), ["notes.txt", "report.pdf"]);
+});
+
+test("indexFile() indexes a single file without a full folder scan", () => {
+  const dir = makeTempFolder();
+  const newFile = path.join(dir, "fresh.txt");
+  fs.writeFileSync(newFile, "brand new");
+  const registry = new PluginRegistry();
+  registry.register(fakeModule("dummy", [".txt"]));
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+
+  const record = library.indexFile(newFile);
+
+  assert.equal(record.fileName, "fresh.txt");
+  assert.equal(record.moduleId, "dummy");
+  assert.equal(library.listFiles().length, 1);
 });
 
 test("listFiles() returns everything indexed so far", () => {

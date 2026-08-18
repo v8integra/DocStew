@@ -32,13 +32,27 @@ export interface AITool {
   handler: (handle: DocumentHandle, args: Record<string, unknown>) => Promise<unknown>;
 }
 
+/** Cheap, list-friendly metadata a module can surface without a full open()+render(). */
+export interface PeekInfo {
+  title?: string;
+  tags?: string[];
+}
+
 export interface DocStewModule {
   id: string;
   supportedExtensions: string[];
   open(filePath: string): DocumentHandle | Promise<DocumentHandle>;
   render(handle: DocumentHandle): RenderDescriptor | Promise<RenderDescriptor>;
-  save(handle: DocumentHandle): void | Promise<void>;
+  /** content is whatever shape render()'s data has — the module round-trips it.
+   * Editing happens in the renderer process, so the edited content has to be
+   * passed back in explicitly rather than mutated on the handle in place. */
+  save(handle: DocumentHandle, content?: unknown): void | Promise<void>;
   export(handle: DocumentHandle, format: string): Buffer | Promise<Buffer>;
   index(handle: DocumentHandle): SearchableText | Promise<SearchableText>;
   aiTools: AITool[];
+  /** Optional: creates a new blank/templated document at filePath. Modules that
+   * don't support user-initiated creation (e.g. PDF) simply omit this. */
+  create?(filePath: string): DocumentHandle | Promise<DocumentHandle>;
+  /** Optional: fast metadata for library list views, without a full render(). */
+  peek?(filePath: string): PeekInfo | Promise<PeekInfo>;
 }

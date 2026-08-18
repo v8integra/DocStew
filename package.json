@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.js",
     "start": "npm run build && electron .",
     "watch": "tsc -p tsconfig.json --watch",
-    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "test": "npm run build && node scripts/run-tests.js",
     "package": "npm run build && electron-builder --win"
   },
   "devDependencies": {
@@ -20,7 +20,8 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
-    "better-sqlite3": "^11.5.0"
+    "better-sqlite3": "^11.5.0",
+    "marked": "^18.0.10"
   },
   "build": {
     "appId": "com.docstew.app",
