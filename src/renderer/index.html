@@ -72,6 +72,43 @@
             <button id="pdf-qa-ask">Ask</button>
           </div>
         </div>
+
+        <div id="word-editor" hidden>
+          <div id="word-toolbar">
+            <select id="word-block-type" title="Block style">
+              <option value="p">Paragraph</option>
+              <option value="h1">Heading 1</option>
+              <option value="h2">Heading 2</option>
+              <option value="h3">Heading 3</option>
+            </select>
+            <button id="word-bold" title="Bold"><b>B</b></button>
+            <button id="word-italic" title="Italic"><i>I</i></button>
+            <button id="word-underline" title="Underline"><u>U</u></button>
+            <button id="word-bullet-list">Bullet List</button>
+            <button id="word-number-list">Numbered List</button>
+            <button id="word-insert-table">Insert Table</button>
+            <span class="pdf-toolbar-sep"></span>
+            <button id="word-summarize">Summarize</button>
+            <button id="word-rewrite">Rewrite</button>
+            <button id="word-tone">Adjust Tone</button>
+            <select id="word-export-format" title="Export format">
+              <option value="pdf">Export as PDF</option>
+              <option value="md">Export as Markdown</option>
+              <option value="txt">Export as Text</option>
+            </select>
+            <button id="word-export">Export</button>
+            <button id="word-save">Save</button>
+            <span id="word-save-status"></span>
+          </div>
+          <p id="word-fidelity-note">Editing supports headings, bold/italic/underline, lists, and tables — other formatting in the original file (images, complex styles, etc.) won't be preserved if you save.</p>
+          <div id="word-warnings" hidden></div>
+          <div id="word-summary" hidden>
+            <strong id="word-summary-title">Summary</strong>
+            <button id="word-summary-close" title="Close">&times;</button>
+            <p id="word-summary-text"></p>
+          </div>
+          <div id="word-content" contenteditable="true"></div>
+        </div>
       </main>
     </div>
 

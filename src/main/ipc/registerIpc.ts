@@ -1,4 +1,5 @@
 import { dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
+import * as fs from "fs";
 import * as path from "path";
 import { IPC_CHANNELS } from "./channels";
 import type { LibraryManager, DocumentRecord } from "../file-manager/libraryManager";
@@ -49,6 +50,16 @@ async function reindexForEmbeddings(
   } catch {
     // deliberately swallowed — see comment above
   }
+}
+
+function uniqueOutputPath(dir: string, baseName: string, extension: string): string {
+  let candidate = path.join(dir, `${baseName}.${extension}`);
+  let n = 2;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(dir, `${baseName}-${n}.${extension}`);
+    n++;
+  }
+  return candidate;
 }
 
 export function registerIpc(library: LibraryManager, registry: PluginRegistry, ai: AiEngineHandles = {}): void {
@@ -240,6 +251,33 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
         }
 
         return { success: true as const, result, file: updated, newFiles };
+      } catch (error) {
+        return { success: false as const, error: errorMessage(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.LIBRARY_EXPORT_FILE,
+    async (_event: IpcMainInvokeEvent, fileId: string, format: string) => {
+      const record = library.getFile(fileId);
+      if (!record || !record.moduleId) {
+        return { success: false as const, error: "No module registered for this file type." };
+      }
+      const mod = registry.get(record.moduleId);
+      if (!mod) {
+        return { success: false as const, error: `Module "${record.moduleId}" is not loaded.` };
+      }
+      try {
+        const handle = await mod.open(record.filePath);
+        const buffer = await mod.export(handle, format);
+        const dir = path.dirname(record.filePath);
+        const baseName = path.basename(record.filePath, path.extname(record.filePath));
+        const outputPath = uniqueOutputPath(dir, baseName, format);
+        fs.writeFileSync(outputPath, buffer);
+        const newRecord = library.indexFile(outputPath);
+        await reindexForEmbeddings(newRecord, registry, ai.embeddingIndex);
+        return { success: true as const, file: newRecord };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
       }

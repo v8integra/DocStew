@@ -10,6 +10,7 @@ const IPC_CHANNELS = {
   LIBRARY_SAVE_FILE: "library:saveFile",
   LIBRARY_CREATE_FILE: "library:createFile",
   LIBRARY_RUN_OPERATION: "library:runOperation",
+  LIBRARY_EXPORT_FILE: "library:exportFile",
   REGISTRY_LIST_MODULES: "registry:listModules",
   NOTES_RENDER_PREVIEW: "notes:renderPreview",
   AI_STATUS: "ai:status",
@@ -27,6 +28,7 @@ contextBridge.exposeInMainWorld("docstew", {
     ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CREATE_FILE, folderPath, fileName),
   runOperation: (fileId: string, opName: string, args?: Record<string, unknown>) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_RUN_OPERATION, fileId, opName, args),
+  exportFile: (fileId: string, format: string) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_EXPORT_FILE, fileId, format),
   listModules: () => ipcRenderer.invoke(IPC_CHANNELS.REGISTRY_LIST_MODULES),
   renderMarkdownPreview: (markdown: string) => ipcRenderer.invoke(IPC_CHANNELS.NOTES_RENDER_PREVIEW, markdown),
   aiStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AI_STATUS),

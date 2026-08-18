@@ -80,6 +80,25 @@ interface PdfData {
   pageCount: number;
 }
 
+interface WordData {
+  html: string;
+  warnings: string[];
+}
+
+interface WordRun {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+}
+
+type WordBlock =
+  | { type: "heading"; level: 1 | 2 | 3; runs: WordRun[] }
+  | { type: "paragraph"; runs: WordRun[] }
+  | { type: "bulletItem"; runs: WordRun[] }
+  | { type: "numberItem"; runs: WordRun[] }
+  | { type: "table"; rows: WordRun[][][] };
+
 interface DocStewApi {
   openFolder: (folderPath?: string) => Promise<OpenFolderResult>;
   listFiles: () => Promise<DocumentRecord[]>;
@@ -87,6 +106,7 @@ interface DocStewApi {
   saveFile: (id: string, content: unknown) => Promise<SaveFileResult>;
   createFile: (folderPath: string, fileName: string) => Promise<CreateFileResult>;
   runOperation: (fileId: string, opName: string, args?: Record<string, unknown>) => Promise<RunOperationResult>;
+  exportFile: (fileId: string, format: string) => Promise<RunOperationResult>;
   listModules: () => Promise<Array<{ id: string; supportedExtensions: string[] }>>;
   renderMarkdownPreview: (markdown: string) => Promise<{ html: string }>;
   aiStatus: () => Promise<AiStatus>;
@@ -149,6 +169,28 @@ const pdfSummaryCloseBtn = document.getElementById("pdf-summary-close") as HTMLB
 const pdfQaInputEl = document.getElementById("pdf-qa-input") as HTMLInputElement;
 const pdfQaAskBtn = document.getElementById("pdf-qa-ask") as HTMLButtonElement;
 
+const wordEditorEl = document.getElementById("word-editor") as HTMLDivElement;
+const wordContentEl = document.getElementById("word-content") as HTMLDivElement;
+const wordBlockTypeEl = document.getElementById("word-block-type") as HTMLSelectElement;
+const wordBoldBtn = document.getElementById("word-bold") as HTMLButtonElement;
+const wordItalicBtn = document.getElementById("word-italic") as HTMLButtonElement;
+const wordUnderlineBtn = document.getElementById("word-underline") as HTMLButtonElement;
+const wordBulletListBtn = document.getElementById("word-bullet-list") as HTMLButtonElement;
+const wordNumberListBtn = document.getElementById("word-number-list") as HTMLButtonElement;
+const wordInsertTableBtn = document.getElementById("word-insert-table") as HTMLButtonElement;
+const wordSummarizeBtn = document.getElementById("word-summarize") as HTMLButtonElement;
+const wordRewriteBtn = document.getElementById("word-rewrite") as HTMLButtonElement;
+const wordToneBtn = document.getElementById("word-tone") as HTMLButtonElement;
+const wordExportFormatEl = document.getElementById("word-export-format") as HTMLSelectElement;
+const wordExportBtn = document.getElementById("word-export") as HTMLButtonElement;
+const wordSaveBtn = document.getElementById("word-save") as HTMLButtonElement;
+const wordSaveStatusEl = document.getElementById("word-save-status") as HTMLSpanElement;
+const wordWarningsEl = document.getElementById("word-warnings") as HTMLDivElement;
+const wordSummaryEl = document.getElementById("word-summary") as HTMLDivElement;
+const wordSummaryTitleEl = document.getElementById("word-summary-title") as HTMLElement;
+const wordSummaryTextEl = document.getElementById("word-summary-text") as HTMLParagraphElement;
+const wordSummaryCloseBtn = document.getElementById("word-summary-close") as HTMLButtonElement;
+
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
 let notesPreviewMode = false;
@@ -206,6 +248,7 @@ function showEmpty(message: string): void {
   contentViewEl.hidden = true;
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
@@ -213,6 +256,7 @@ function showGenericContent(text: string): void {
   contentViewEl.hidden = false;
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -221,6 +265,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   contentViewEl.hidden = true;
   notesEditorEl.hidden = false;
   pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
 
   currentOpenFileId = file.id;
   notesTitleEl.value = data.title;
@@ -255,6 +300,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
     showNotesEditor(file, result.rendered.data as NotesData);
   } else if (result.rendered.kind === "pdf") {
     await showPdfViewer(file, result.rendered.data as PdfData);
+  } else if (result.rendered.kind === "word") {
+    showWordEditor(file, result.rendered.data as WordData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -381,6 +428,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   contentViewEl.hidden = true;
   notesEditorEl.hidden = true;
   pdfViewerEl.hidden = false;
+  wordEditorEl.hidden = true;
 
   currentPdfFileId = file.id;
   currentPdfPageNum = 1;
@@ -525,6 +573,193 @@ pdfQaInputEl.addEventListener("keydown", (event) => {
     event.preventDefault();
     void askAboutCurrentPdf();
   }
+});
+
+// ---- Word editor ----
+
+let currentWordFileId: string | undefined;
+
+function showWordEditor(file: DocumentRecord, data: WordData): void {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = false;
+
+  currentWordFileId = file.id;
+  wordContentEl.innerHTML = data.html;
+  wordSaveStatusEl.textContent = "";
+  wordSummaryEl.hidden = true;
+
+  if (data.warnings.length > 0) {
+    wordWarningsEl.hidden = false;
+    wordWarningsEl.textContent = `Note: this document uses formatting mammoth flagged as unsupported — ${data.warnings.join("; ")}`;
+  } else {
+    wordWarningsEl.hidden = true;
+  }
+}
+
+// Deliberately uses the deprecated-but-still-fully-functional document.execCommand
+// rather than a rich-text editor library, matching this project's minimal-deps
+// approach — Electron pins a known Chromium version, so execCommand's removal
+// risk (a concern for web apps targeting arbitrary browsers) doesn't apply here.
+function execWordCommand(command: string, value?: string): void {
+  wordContentEl.focus();
+  document.execCommand(command, false, value);
+}
+
+wordBlockTypeEl.addEventListener("change", () => {
+  const tagByValue: Record<string, string> = { p: "P", h1: "H1", h2: "H2", h3: "H3" };
+  execWordCommand("formatBlock", tagByValue[wordBlockTypeEl.value] ?? "P");
+});
+wordBoldBtn.addEventListener("click", () => execWordCommand("bold"));
+wordItalicBtn.addEventListener("click", () => execWordCommand("italic"));
+wordUnderlineBtn.addEventListener("click", () => execWordCommand("underline"));
+wordBulletListBtn.addEventListener("click", () => execWordCommand("insertUnorderedList"));
+wordNumberListBtn.addEventListener("click", () => execWordCommand("insertOrderedList"));
+wordInsertTableBtn.addEventListener("click", () => {
+  execWordCommand(
+    "insertHTML",
+    "<table><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></table><p></p>"
+  );
+});
+
+// ---- Word DOM -> WordBlock[] (mirrors modules/word/wordBlocks.ts) ----
+
+function extractWordRuns(el: HTMLElement): WordRun[] {
+  const runs: WordRun[] = [];
+  function walk(node: Node, bold: boolean, italic: boolean, underline: boolean): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? "";
+      if (text.length > 0) {
+        runs.push({ text, bold: bold || undefined, italic: italic || undefined, underline: underline || undefined });
+      }
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = (node as HTMLElement).tagName.toLowerCase();
+    const nextBold = bold || tag === "b" || tag === "strong";
+    const nextItalic = italic || tag === "i" || tag === "em";
+    const nextUnderline = underline || tag === "u";
+    for (const child of Array.from(node.childNodes)) {
+      walk(child, nextBold, nextItalic, nextUnderline);
+    }
+  }
+  walk(el, false, false, false);
+  return runs;
+}
+
+function wordDomToBlocks(container: HTMLElement): WordBlock[] {
+  const blocks: WordBlock[] = [];
+  for (const child of Array.from(container.children)) {
+    const tag = child.tagName.toLowerCase();
+    if (tag === "h1" || tag === "h2" || tag === "h3") {
+      blocks.push({ type: "heading", level: Number(tag[1]) as 1 | 2 | 3, runs: extractWordRuns(child as HTMLElement) });
+    } else if (tag === "p") {
+      blocks.push({ type: "paragraph", runs: extractWordRuns(child as HTMLElement) });
+    } else if (tag === "ul") {
+      for (const li of Array.from(child.children)) {
+        blocks.push({ type: "bulletItem", runs: extractWordRuns(li as HTMLElement) });
+      }
+    } else if (tag === "ol") {
+      for (const li of Array.from(child.children)) {
+        blocks.push({ type: "numberItem", runs: extractWordRuns(li as HTMLElement) });
+      }
+    } else if (tag === "table") {
+      const rows: WordRun[][][] = [];
+      for (const tr of Array.from(child.querySelectorAll("tr"))) {
+        rows.push(Array.from(tr.querySelectorAll("td, th")).map((cell) => extractWordRuns(cell as HTMLElement)));
+      }
+      blocks.push({ type: "table", rows });
+    }
+  }
+  return blocks;
+}
+
+async function saveCurrentWordDoc(): Promise<void> {
+  if (!currentWordFileId) return;
+  const blocks = wordDomToBlocks(wordContentEl);
+  wordSaveStatusEl.textContent = "Saving...";
+  const result = await window.docstew.saveFile(currentWordFileId, { blocks });
+  if (result.success) {
+    wordSaveStatusEl.textContent = "Saved";
+    await refreshFileList();
+  } else {
+    wordSaveStatusEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+async function summarizeCurrentWordDoc(): Promise<void> {
+  if (!currentWordFileId) return;
+  wordSummarizeBtn.disabled = true;
+  wordSummarizeBtn.textContent = "Summarizing...";
+  const result = await window.docstew.aiRunTool(currentWordFileId, "summarize");
+  wordSummarizeBtn.disabled = false;
+  wordSummarizeBtn.textContent = "Summarize";
+
+  wordSummaryTitleEl.textContent = "Summary";
+  wordSummaryEl.hidden = false;
+  wordSummaryTextEl.textContent = result.success
+    ? (result.result as { summary: string }).summary
+    : `Error: ${result.error}`;
+}
+
+async function rewriteCurrentWordDoc(): Promise<void> {
+  if (!currentWordFileId) return;
+  const instruction = window.prompt("Rewrite instruction (leave blank to just improve clarity):", "") ?? undefined;
+  wordRewriteBtn.disabled = true;
+  wordRewriteBtn.textContent = "Rewriting...";
+  const result = await window.docstew.aiRunTool(currentWordFileId, "rewrite", { instruction });
+  wordRewriteBtn.disabled = false;
+  wordRewriteBtn.textContent = "Rewrite";
+
+  wordSummaryTitleEl.textContent = "Rewrite Suggestion";
+  wordSummaryEl.hidden = false;
+  wordSummaryTextEl.textContent = result.success
+    ? (result.result as { rewritten: string }).rewritten
+    : `Error: ${result.error}`;
+}
+
+async function adjustToneOfCurrentWordDoc(): Promise<void> {
+  if (!currentWordFileId) return;
+  const tone = window.prompt("Adjust tone to:", "more formal");
+  if (!tone) return;
+  wordToneBtn.disabled = true;
+  wordToneBtn.textContent = "Adjusting...";
+  const result = await window.docstew.aiRunTool(currentWordFileId, "toneAdjust", { tone });
+  wordToneBtn.disabled = false;
+  wordToneBtn.textContent = "Adjust Tone";
+
+  wordSummaryTitleEl.textContent = `Tone: ${tone}`;
+  wordSummaryEl.hidden = false;
+  wordSummaryTextEl.textContent = result.success
+    ? (result.result as { rewritten: string }).rewritten
+    : `Error: ${result.error}`;
+}
+
+async function exportCurrentWordDoc(): Promise<void> {
+  if (!currentWordFileId) return;
+  const format = wordExportFormatEl.value;
+  wordExportBtn.disabled = true;
+  wordExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentWordFileId, format);
+  wordExportBtn.disabled = false;
+  wordExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    wordSaveStatusEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    wordSaveStatusEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
+wordSaveBtn.addEventListener("click", () => void saveCurrentWordDoc());
+wordExportBtn.addEventListener("click", () => void exportCurrentWordDoc());
+wordSummarizeBtn.addEventListener("click", () => void summarizeCurrentWordDoc());
+wordRewriteBtn.addEventListener("click", () => void rewriteCurrentWordDoc());
+wordToneBtn.addEventListener("click", () => void adjustToneOfCurrentWordDoc());
+wordSummaryCloseBtn.addEventListener("click", () => {
+  wordSummaryEl.hidden = true;
 });
 
 // ---- Folder open ----
@@ -711,6 +946,9 @@ document.addEventListener("keydown", (event) => {
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !notesEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentNote();
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !wordEditorEl.hidden) {
+    event.preventDefault();
+    void saveCurrentWordDoc();
   }
 });
 
