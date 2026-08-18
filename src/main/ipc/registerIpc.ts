@@ -7,6 +7,7 @@ import type { PluginRegistry } from "../plugin-registry/registry";
 import { renderMarkdownToHtml } from "../markdown";
 import type { EmbeddingIndex } from "../ai-engine/embeddingIndex";
 import { askAboutLibrary } from "../ai-engine/chatService";
+import type { FullTextIndex } from "../search/fullTextIndex";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -32,21 +33,25 @@ export interface AiEngineHandles {
   embedModel?: string;
 }
 
-/** Best-effort: re-embeds a document's searchable text for "ask my notes".
- * Failures (Ollama momentarily unreachable, etc.) shouldn't break the file
- * operation that triggered them — the embedding index just falls behind. */
-async function reindexForEmbeddings(
+/** Best-effort: re-indexes a document's searchable text into both the
+ * full-text index (always, no dependency on Ollama) and the semantic
+ * embedding index (only when Ollama's embedding model is available).
+ * Failures shouldn't break the file operation that triggered them — the
+ * indexes just fall behind. */
+async function reindexDocument(
   record: DocumentRecord,
   registry: PluginRegistry,
+  fullTextIndex: FullTextIndex,
   embeddingIndex: EmbeddingIndex | undefined
 ): Promise<void> {
-  if (!embeddingIndex || !record.moduleId) return;
+  if (!record.moduleId) return;
   const mod = registry.get(record.moduleId);
   if (!mod) return;
   try {
     const handle = await mod.open(record.filePath);
     const searchable = await mod.index(handle);
-    await embeddingIndex.indexDocument(record.id, searchable.text);
+    fullTextIndex.indexDocument(record.id, record.fileName, searchable.text);
+    if (embeddingIndex) await embeddingIndex.indexDocument(record.id, searchable.text);
   } catch {
     // deliberately swallowed — see comment above
   }
@@ -62,7 +67,12 @@ function uniqueOutputPath(dir: string, baseName: string, extension: string): str
   return candidate;
 }
 
-export function registerIpc(library: LibraryManager, registry: PluginRegistry, ai: AiEngineHandles = {}): void {
+export function registerIpc(
+  library: LibraryManager,
+  registry: PluginRegistry,
+  fullTextIndex: FullTextIndex,
+  ai: AiEngineHandles = {}
+): void {
   ipcMain.handle(IPC_CHANNELS.LIBRARY_OPEN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath?: string) => {
     try {
       let targetFolder = folderPath;
@@ -72,7 +82,7 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
         targetFolder = result.filePaths[0];
       }
       const files = library.openFolder(targetFolder);
-      await Promise.all(files.map((record) => reindexForEmbeddings(record, registry, ai.embeddingIndex)));
+      await Promise.all(files.map((record) => reindexDocument(record, registry, fullTextIndex, ai.embeddingIndex)));
       return { success: true as const, folderPath: targetFolder, files };
     } catch (error) {
       return { success: false as const, error: errorMessage(error) };
@@ -117,7 +127,7 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
         const handle = await mod.open(record.filePath);
         await mod.save(handle, content);
         const updated = library.indexFile(record.filePath);
-        await reindexForEmbeddings(updated, registry, ai.embeddingIndex);
+        await reindexDocument(updated, registry, fullTextIndex, ai.embeddingIndex);
         return { success: true as const };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
@@ -139,7 +149,7 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
       try {
         await mod.create(filePath);
         const record = library.indexFile(filePath);
-        await reindexForEmbeddings(record, registry, ai.embeddingIndex);
+        await reindexDocument(record, registry, fullTextIndex, ai.embeddingIndex);
         return { success: true as const, file: record };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
@@ -240,13 +250,13 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
         const result = await operation.handler(handle, args);
 
         const updated = library.indexFile(record.filePath);
-        await reindexForEmbeddings(updated, registry, ai.embeddingIndex);
+        await reindexDocument(updated, registry, fullTextIndex, ai.embeddingIndex);
 
         const newFilePaths = (result as { newFiles?: string[] } | undefined)?.newFiles ?? [];
         const newFiles = [];
         for (const filePath of newFilePaths) {
           const newRecord = library.indexFile(filePath);
-          await reindexForEmbeddings(newRecord, registry, ai.embeddingIndex);
+          await reindexDocument(newRecord, registry, fullTextIndex, ai.embeddingIndex);
           newFiles.push(newRecord);
         }
 
@@ -276,11 +286,22 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
         const outputPath = uniqueOutputPath(dir, baseName, format);
         fs.writeFileSync(outputPath, buffer);
         const newRecord = library.indexFile(outputPath);
-        await reindexForEmbeddings(newRecord, registry, ai.embeddingIndex);
+        await reindexDocument(newRecord, registry, fullTextIndex, ai.embeddingIndex);
         return { success: true as const, file: newRecord };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
       }
     }
   );
+
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_SEARCH, async (_event: IpcMainInvokeEvent, query: string) => {
+    const matches = fullTextIndex.search(query, 30);
+    const results = matches
+      .map((match) => {
+        const record = library.getFile(match.documentId);
+        return record ? { ...record, snippet: match.snippet } : undefined;
+      })
+      .filter((r): r is DocumentRecord & { snippet: string } => r !== undefined);
+    return { results };
+  });
 }

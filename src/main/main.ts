@@ -10,6 +10,7 @@ import { listModels } from "./ai-engine/ollamaClient";
 import { selectModels } from "./ai-engine/modelSelection";
 import { setModels } from "./ai-engine/config";
 import { EmbeddingIndex } from "./ai-engine/embeddingIndex";
+import { FullTextIndex } from "./search/fullTextIndex";
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -30,6 +31,7 @@ app.whenReady().then(async () => {
 
   const db = openDatabase(getLibraryDbPath());
   const library = new LibraryManager(db, registry);
+  const fullTextIndex = new FullTextIndex(db);
 
   // Ollama may not be installed/running — degrade gracefully rather than
   // failing app startup; the chat panel surfaces the "not available" state.
@@ -38,7 +40,7 @@ app.whenReady().then(async () => {
   setModels({ chatModel, embedModel });
   const embeddingIndex = embedModel ? new EmbeddingIndex(db, embedModel) : undefined;
 
-  registerIpc(library, registry, { embeddingIndex, chatModel, embedModel });
+  registerIpc(library, registry, fullTextIndex, { embeddingIndex, chatModel, embedModel });
   registerPdfIpc(library);
 
   createWindow();

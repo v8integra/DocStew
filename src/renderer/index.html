@@ -11,6 +11,7 @@
     <header id="titlebar">
       <span id="app-name">DocStew</span>
       <button id="open-folder-btn">Open Folder</button>
+      <button id="search-btn" title="Search Library (Ctrl+F)">Search</button>
       <button id="ai-chat-btn">Ask My Notes</button>
       <button id="palette-btn" title="Command Palette (Ctrl+K)">⌘ Command Palette</button>
     </header>
@@ -18,6 +19,20 @@
     <div id="layout">
       <aside id="sidebar">
         <h2>Library</h2>
+        <p id="batch-hint">Ctrl+Click to select multiple files</p>
+        <div id="batch-bar" hidden>
+          <span id="batch-count"></span>
+          <select id="batch-export-format" title="Export format">
+            <option value="txt">as Text</option>
+            <option value="md">as Markdown</option>
+            <option value="pdf">as PDF</option>
+            <option value="csv">as CSV</option>
+            <option value="xlsx">as XLSX</option>
+            <option value="docx">as DOCX</option>
+          </select>
+          <button id="batch-export-btn">Export</button>
+          <button id="batch-clear-btn" title="Clear selection">&times;</button>
+        </div>
         <ul id="file-list"></ul>
       </aside>
 
@@ -31,6 +46,12 @@
             <input id="notes-tags" type="text" placeholder="tags, comma, separated" />
             <button id="notes-toggle-preview">Preview</button>
             <button id="notes-summarize">Summarize</button>
+            <select id="notes-export-format" title="Export format">
+              <option value="md">Export as Markdown</option>
+              <option value="txt">Export as Text</option>
+              <option value="html">Export as HTML</option>
+            </select>
+            <button id="notes-export">Export</button>
             <button id="notes-save">Save</button>
             <span id="notes-save-status"></span>
           </div>
@@ -57,6 +78,12 @@
             <span class="pdf-toolbar-sep"></span>
             <button id="pdf-summarize">Summarize</button>
             <button id="pdf-extract-table">Extract Table</button>
+            <span class="pdf-toolbar-sep"></span>
+            <select id="pdf-export-format" title="Export format">
+              <option value="txt">Export as Text</option>
+              <option value="pdf">Export as PDF (copy)</option>
+            </select>
+            <button id="pdf-export">Export</button>
           </div>
           <div id="pdf-status"></div>
           <div id="pdf-summary" hidden>
@@ -155,6 +182,17 @@
         <input id="ai-chat-input" type="text" placeholder="Ask a question about your library..." />
         <button id="ai-chat-send">Send</button>
       </div>
+    </div>
+
+    <div id="search-panel" hidden>
+      <div id="search-header">
+        <strong>Search Library</strong>
+        <button id="search-close" title="Close">&times;</button>
+      </div>
+      <div id="search-input-row">
+        <input id="search-input" type="text" placeholder="Search all documents (full text + file name)..." />
+      </div>
+      <ul id="search-results"></ul>
     </div>
   </div>
 

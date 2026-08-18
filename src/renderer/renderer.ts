@@ -130,6 +130,7 @@ interface DocStewApi {
   aiChat: (question: string) => Promise<AiChatResult>;
   aiRunTool: (fileId: string, toolName: string, args?: Record<string, unknown>) => Promise<AiRunToolResult>;
   pdfReadBytes: (fileId: string) => Promise<Uint8Array>;
+  search: (query: string) => Promise<{ results: Array<DocumentRecord & { snippet: string }> }>;
 }
 
 interface Window {
@@ -157,6 +158,8 @@ const notesSummarizeBtn = document.getElementById("notes-summarize") as HTMLButt
 const notesSummaryEl = document.getElementById("notes-summary") as HTMLDivElement;
 const notesSummaryTextEl = document.getElementById("notes-summary-text") as HTMLParagraphElement;
 const notesSummaryCloseBtn = document.getElementById("notes-summary-close") as HTMLButtonElement;
+const notesExportFormatEl = document.getElementById("notes-export-format") as HTMLSelectElement;
+const notesExportBtn = document.getElementById("notes-export") as HTMLButtonElement;
 
 const aiChatBtn = document.getElementById("ai-chat-btn") as HTMLButtonElement;
 const aiChatPanel = document.getElementById("ai-chat-panel") as HTMLDivElement;
@@ -185,6 +188,8 @@ const pdfSummaryTextEl = document.getElementById("pdf-summary-text") as HTMLPara
 const pdfSummaryCloseBtn = document.getElementById("pdf-summary-close") as HTMLButtonElement;
 const pdfQaInputEl = document.getElementById("pdf-qa-input") as HTMLInputElement;
 const pdfQaAskBtn = document.getElementById("pdf-qa-ask") as HTMLButtonElement;
+const pdfExportFormatEl = document.getElementById("pdf-export-format") as HTMLSelectElement;
+const pdfExportBtn = document.getElementById("pdf-export") as HTMLButtonElement;
 
 const wordEditorEl = document.getElementById("word-editor") as HTMLDivElement;
 const wordContentEl = document.getElementById("word-content") as HTMLDivElement;
@@ -222,17 +227,35 @@ const sheetSummaryTitleEl = document.getElementById("sheet-summary-title") as HT
 const sheetSummaryTextEl = document.getElementById("sheet-summary-text") as HTMLParagraphElement;
 const sheetSummaryCloseBtn = document.getElementById("sheet-summary-close") as HTMLButtonElement;
 
+const batchHintEl = document.getElementById("batch-hint") as HTMLParagraphElement;
+const batchBarEl = document.getElementById("batch-bar") as HTMLDivElement;
+const batchCountEl = document.getElementById("batch-count") as HTMLSpanElement;
+const batchExportFormatEl = document.getElementById("batch-export-format") as HTMLSelectElement;
+const batchExportBtn = document.getElementById("batch-export-btn") as HTMLButtonElement;
+const batchClearBtn = document.getElementById("batch-clear-btn") as HTMLButtonElement;
+
+const searchBtn = document.getElementById("search-btn") as HTMLButtonElement;
+const searchPanelEl = document.getElementById("search-panel") as HTMLDivElement;
+const searchCloseBtn = document.getElementById("search-close") as HTMLButtonElement;
+const searchInputEl = document.getElementById("search-input") as HTMLInputElement;
+const searchResultsEl = document.getElementById("search-results") as HTMLUListElement;
+
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
 let notesPreviewMode = false;
 
 // ---- Sidebar / library ----
 
+let lastRenderedFiles: DocumentRecord[] = [];
+const batchSelectedIds = new Set<string>();
+
 function renderFileList(files: DocumentRecord[]): void {
+  lastRenderedFiles = files;
   fileListEl.innerHTML = "";
   for (const file of files) {
     const li = document.createElement("li");
     li.dataset.id = file.id;
+    li.classList.toggle("batch-selected", batchSelectedIds.has(file.id));
 
     const row = document.createElement("div");
     row.className = "file-row";
@@ -261,10 +284,73 @@ function renderFileList(files: DocumentRecord[]): void {
       li.appendChild(tagsRow);
     }
 
-    li.addEventListener("click", () => selectFile(file));
+    li.addEventListener("click", (event) => {
+      if (event.ctrlKey || event.metaKey) {
+        toggleBatchSelect(file.id);
+      } else {
+        void selectFile(file);
+      }
+    });
     fileListEl.appendChild(li);
   }
 }
+
+// ---- Batch selection / batch export ----
+
+function toggleBatchSelect(fileId: string): void {
+  if (batchSelectedIds.has(fileId)) {
+    batchSelectedIds.delete(fileId);
+  } else {
+    batchSelectedIds.add(fileId);
+  }
+  renderFileList(lastRenderedFiles);
+  updateBatchBar();
+}
+
+function updateBatchBar(): void {
+  const count = batchSelectedIds.size;
+  batchBarEl.hidden = count === 0;
+  batchHintEl.hidden = count > 0;
+  batchCountEl.textContent = `${count} file${count === 1 ? "" : "s"} selected`;
+}
+
+function clearBatchSelection(): void {
+  batchSelectedIds.clear();
+  renderFileList(lastRenderedFiles);
+  updateBatchBar();
+}
+
+async function batchExportSelected(): Promise<void> {
+  const format = batchExportFormatEl.value;
+  const ids = Array.from(batchSelectedIds);
+  batchExportBtn.disabled = true;
+  batchExportBtn.textContent = "Exporting...";
+
+  let succeeded = 0;
+  const failures: string[] = [];
+  for (const id of ids) {
+    const file = lastRenderedFiles.find((f) => f.id === id);
+    const result = await window.docstew.exportFile(id, format);
+    if (result.success) {
+      succeeded++;
+    } else {
+      failures.push(`${file?.fileName ?? id}: ${result.error}`);
+    }
+  }
+
+  batchExportBtn.disabled = false;
+  batchExportBtn.textContent = "Export";
+  batchCountEl.textContent =
+    failures.length === 0
+      ? `Exported ${succeeded} file${succeeded === 1 ? "" : "s"}.`
+      : `Exported ${succeeded}, failed ${failures.length}: ${failures.join("; ")}`;
+
+  await refreshFileList();
+}
+
+searchBtn.addEventListener("click", () => toggleSearchPanel(searchPanelEl.hidden));
+batchClearBtn.addEventListener("click", () => clearBatchSelection());
+batchExportBtn.addEventListener("click", () => void batchExportSelected());
 
 async function refreshFileList(): Promise<void> {
   const files = await window.docstew.listFiles();
@@ -397,8 +483,25 @@ async function summarizeCurrentNote(): Promise<void> {
   }
 }
 
+async function exportCurrentNote(): Promise<void> {
+  if (!currentOpenFileId) return;
+  const format = notesExportFormatEl.value;
+  notesExportBtn.disabled = true;
+  notesExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentOpenFileId, format);
+  notesExportBtn.disabled = false;
+  notesExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    notesSaveStatusEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    notesSaveStatusEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
 notesTogglePreviewBtn.addEventListener("click", () => void toggleNotesPreview());
 notesSaveBtn.addEventListener("click", () => void saveCurrentNote());
+notesExportBtn.addEventListener("click", () => void exportCurrentNote());
 notesSummarizeBtn.addEventListener("click", () => void summarizeCurrentNote());
 notesSummaryCloseBtn.addEventListener("click", () => {
   notesSummaryEl.hidden = true;
@@ -598,7 +701,24 @@ async function askAboutCurrentPdf(): Promise<void> {
   }
 }
 
+async function exportCurrentPdf(): Promise<void> {
+  if (!currentPdfFileId) return;
+  const format = pdfExportFormatEl.value;
+  pdfExportBtn.disabled = true;
+  pdfExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentPdfFileId, format);
+  pdfExportBtn.disabled = false;
+  pdfExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    pdfStatusEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    pdfStatusEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
 pdfMergeBtn.addEventListener("click", () => openPaletteInMode("pdf-merge-pick", "Pick a PDF to merge with..."));
+pdfExportBtn.addEventListener("click", () => void exportCurrentPdf());
 pdfSummarizeBtn.addEventListener("click", () => void summarizeCurrentPdf());
 pdfExtractTableBtn.addEventListener("click", () => void extractTableFromCurrentPdf());
 pdfSummaryCloseBtn.addEventListener("click", () => {
@@ -1148,10 +1268,15 @@ document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     togglePalette(palette.hidden);
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    toggleSearchPanel(searchPanelEl.hidden);
   } else if (event.key === "Escape" && !palette.hidden) {
     togglePalette(false);
   } else if (event.key === "Escape" && !aiChatPanel.hidden) {
     toggleAiChat(false);
+  } else if (event.key === "Escape" && !searchPanelEl.hidden) {
+    toggleSearchPanel(false);
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !notesEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentNote();
@@ -1248,6 +1373,83 @@ aiChatInputEl.addEventListener("keydown", (event) => {
     event.preventDefault();
     void sendChatMessage();
   }
+});
+
+// ---- Search ----
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// fullTextIndex.ts wraps matches in ‹...› — escape everything else first,
+// then turn those markers into <mark>, so real HTML in the source content
+// can never be injected via this innerHTML assignment.
+function highlightSnippet(snippet: string): string {
+  return escapeHtml(snippet).replace(/‹/g, "<mark>").replace(/›/g, "</mark>");
+}
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+function renderSearchResults(results: Array<DocumentRecord & { snippet: string }>): void {
+  searchResultsEl.innerHTML = "";
+  if (results.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = searchInputEl.value.trim() ? "No matches found." : "Type to search your library.";
+    searchResultsEl.appendChild(li);
+    return;
+  }
+  for (const result of results) {
+    const li = document.createElement("li");
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "search-result-name";
+    const name = document.createElement("span");
+    name.textContent = result.title || result.fileName;
+    nameRow.appendChild(name);
+    const moduleTag = document.createElement("span");
+    moduleTag.className = "search-result-module";
+    moduleTag.textContent = result.moduleId ?? "";
+    nameRow.appendChild(moduleTag);
+    li.appendChild(nameRow);
+
+    if (result.snippet) {
+      const snippetEl = document.createElement("div");
+      snippetEl.className = "search-result-snippet";
+      snippetEl.innerHTML = highlightSnippet(result.snippet);
+      li.appendChild(snippetEl);
+    }
+
+    li.addEventListener("click", () => {
+      toggleSearchPanel(false);
+      void selectFile(result);
+    });
+    searchResultsEl.appendChild(li);
+  }
+}
+
+async function runSearch(): Promise<void> {
+  const query = searchInputEl.value.trim();
+  if (!query) {
+    renderSearchResults([]);
+    return;
+  }
+  const { results } = await window.docstew.search(query);
+  renderSearchResults(results);
+}
+
+function toggleSearchPanel(show: boolean): void {
+  searchPanelEl.hidden = !show;
+  if (show) {
+    searchInputEl.value = "";
+    renderSearchResults([]);
+    searchInputEl.focus();
+  }
+}
+
+searchCloseBtn.addEventListener("click", () => toggleSearchPanel(false));
+searchInputEl.addEventListener("input", () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => void runSearch(), 200);
 });
 
 refreshFileList();

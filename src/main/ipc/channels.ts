@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   LIBRARY_CREATE_FILE: "library:createFile",
   LIBRARY_RUN_OPERATION: "library:runOperation",
   LIBRARY_EXPORT_FILE: "library:exportFile",
+  LIBRARY_SEARCH: "library:search",
   REGISTRY_LIST_MODULES: "registry:listModules",
   NOTES_RENDER_PREVIEW: "notes:renderPreview",
   AI_STATUS: "ai:status",

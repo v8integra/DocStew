@@ -23,6 +23,15 @@ CREATE TABLE IF NOT EXISTS embeddings (
   text TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Full-text index, independent of the AI engine — works even without Ollama
+-- installed. document_id is UNINDEXED (not searched itself, just carried
+-- through so results can be joined back to the documents table).
+CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+  document_id UNINDEXED,
+  file_name,
+  text
+);
 `;
 
 export function openDatabase(dbPath: string): Database.Database {
