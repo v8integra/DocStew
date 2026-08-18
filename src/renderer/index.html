@@ -42,6 +42,36 @@
           <textarea id="notes-body" placeholder="Write in Markdown..."></textarea>
           <div id="notes-preview" hidden></div>
         </div>
+
+        <div id="pdf-viewer" hidden>
+          <div id="pdf-toolbar">
+            <button id="pdf-prev-page" title="Previous page">&larr;</button>
+            <span id="pdf-page-indicator">Page 1 of 1</span>
+            <button id="pdf-next-page" title="Next page">&rarr;</button>
+            <span class="pdf-toolbar-sep"></span>
+            <button id="pdf-rotate">Rotate</button>
+            <button id="pdf-move-left" title="Move this page earlier">Move &larr;</button>
+            <button id="pdf-move-right" title="Move this page later">Move &rarr;</button>
+            <button id="pdf-split">Split Here</button>
+            <button id="pdf-merge">Merge With...</button>
+            <span class="pdf-toolbar-sep"></span>
+            <button id="pdf-summarize">Summarize</button>
+            <button id="pdf-extract-table">Extract Table</button>
+          </div>
+          <div id="pdf-status"></div>
+          <div id="pdf-summary" hidden>
+            <strong id="pdf-summary-title">Summary</strong>
+            <button id="pdf-summary-close" title="Close">&times;</button>
+            <p id="pdf-summary-text"></p>
+          </div>
+          <div id="pdf-canvas-wrap">
+            <canvas id="pdf-canvas"></canvas>
+          </div>
+          <div id="pdf-qa-row">
+            <input id="pdf-qa-input" type="text" placeholder="Ask a question about this PDF..." />
+            <button id="pdf-qa-ask">Ask</button>
+          </div>
+        </div>
       </main>
     </div>
 
@@ -64,6 +94,7 @@
     </div>
   </div>
 
+  <script type="module" src="pdfjs-loader.mjs"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

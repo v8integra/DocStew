@@ -32,6 +32,21 @@ export interface AITool {
   handler: (handle: DocumentHandle, args: Record<string, unknown>) => Promise<unknown>;
 }
 
+/**
+ * Same shape as AITool, but for deterministic, non-AI module actions (PDF's
+ * rotate/merge/split, say) — kept as a separate array so a UI action that
+ * doesn't touch the local model isn't mislabeled as an "AI tool". A handler
+ * that creates new files (merge/split) returns `{ newFiles: string[] }` so
+ * the core file manager knows to index them, without needing to know what
+ * operation produced them.
+ */
+export interface ModuleOperation {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (handle: DocumentHandle, args: Record<string, unknown>) => Promise<unknown>;
+}
+
 /** Cheap, list-friendly metadata a module can surface without a full open()+render(). */
 export interface PeekInfo {
   title?: string;
@@ -55,4 +70,6 @@ export interface DocStewModule {
   create?(filePath: string): DocumentHandle | Promise<DocumentHandle>;
   /** Optional: fast metadata for library list views, without a full render(). */
   peek?(filePath: string): PeekInfo | Promise<PeekInfo>;
+  /** Optional: deterministic, non-AI actions the UI can invoke by name (see ModuleOperation). */
+  operations?: ModuleOperation[];
 }

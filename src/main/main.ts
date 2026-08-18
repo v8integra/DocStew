@@ -5,6 +5,7 @@ import { openDatabase } from "./file-manager/db";
 import { LibraryManager } from "./file-manager/libraryManager";
 import { PluginRegistry } from "./plugin-registry/registry";
 import { registerIpc } from "./ipc/registerIpc";
+import { registerPdfIpc } from "./ipc/pdfIpc";
 import { listModels } from "./ai-engine/ollamaClient";
 import { selectModels } from "./ai-engine/modelSelection";
 import { setModels } from "./ai-engine/config";
@@ -38,6 +39,7 @@ app.whenReady().then(async () => {
   const embeddingIndex = embedModel ? new EmbeddingIndex(db, embedModel) : undefined;
 
   registerIpc(library, registry, { embeddingIndex, chatModel, embedModel });
+  registerPdfIpc(library);
 
   createWindow();
 

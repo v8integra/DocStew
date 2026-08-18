@@ -176,7 +176,12 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
 
   ipcMain.handle(
     IPC_CHANNELS.AI_RUN_TOOL,
-    async (_event: IpcMainInvokeEvent, fileId: string, toolName: string) => {
+    async (
+      _event: IpcMainInvokeEvent,
+      fileId: string,
+      toolName: string,
+      args: Record<string, unknown> = {}
+    ) => {
       const record = library.getFile(fileId);
       if (!record || !record.moduleId) {
         return { success: false as const, error: "No module registered for this file type." };
@@ -191,8 +196,50 @@ export function registerIpc(library: LibraryManager, registry: PluginRegistry, a
       }
       try {
         const handle = await mod.open(record.filePath);
-        const result = await tool.handler(handle, {});
+        const result = await tool.handler(handle, args);
         return { success: true as const, result };
+      } catch (error) {
+        return { success: false as const, error: errorMessage(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.LIBRARY_RUN_OPERATION,
+    async (
+      _event: IpcMainInvokeEvent,
+      fileId: string,
+      opName: string,
+      args: Record<string, unknown> = {}
+    ) => {
+      const record = library.getFile(fileId);
+      if (!record || !record.moduleId) {
+        return { success: false as const, error: "No module registered for this file type." };
+      }
+      const mod = registry.get(record.moduleId);
+      if (!mod) {
+        return { success: false as const, error: `Module "${record.moduleId}" is not loaded.` };
+      }
+      const operation = mod.operations?.find((o) => o.name === opName);
+      if (!operation) {
+        return { success: false as const, error: `Module "${mod.id}" has no operation named "${opName}".` };
+      }
+      try {
+        const handle = await mod.open(record.filePath);
+        const result = await operation.handler(handle, args);
+
+        const updated = library.indexFile(record.filePath);
+        await reindexForEmbeddings(updated, registry, ai.embeddingIndex);
+
+        const newFilePaths = (result as { newFiles?: string[] } | undefined)?.newFiles ?? [];
+        const newFiles = [];
+        for (const filePath of newFilePaths) {
+          const newRecord = library.indexFile(filePath);
+          await reindexForEmbeddings(newRecord, registry, ai.embeddingIndex);
+          newFiles.push(newRecord);
+        }
+
+        return { success: true as const, result, file: updated, newFiles };
       } catch (error) {
         return { success: false as const, error: errorMessage(error) };
       }

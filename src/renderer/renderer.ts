@@ -68,17 +68,31 @@ interface AiRunToolResult {
   error?: string;
 }
 
+interface RunOperationResult {
+  success: boolean;
+  result?: unknown;
+  file?: DocumentRecord;
+  newFiles?: DocumentRecord[];
+  error?: string;
+}
+
+interface PdfData {
+  pageCount: number;
+}
+
 interface DocStewApi {
   openFolder: (folderPath?: string) => Promise<OpenFolderResult>;
   listFiles: () => Promise<DocumentRecord[]>;
   openFile: (id: string) => Promise<OpenFileResult>;
   saveFile: (id: string, content: unknown) => Promise<SaveFileResult>;
   createFile: (folderPath: string, fileName: string) => Promise<CreateFileResult>;
+  runOperation: (fileId: string, opName: string, args?: Record<string, unknown>) => Promise<RunOperationResult>;
   listModules: () => Promise<Array<{ id: string; supportedExtensions: string[] }>>;
   renderMarkdownPreview: (markdown: string) => Promise<{ html: string }>;
   aiStatus: () => Promise<AiStatus>;
   aiChat: (question: string) => Promise<AiChatResult>;
-  aiRunTool: (fileId: string, toolName: string) => Promise<AiRunToolResult>;
+  aiRunTool: (fileId: string, toolName: string, args?: Record<string, unknown>) => Promise<AiRunToolResult>;
+  pdfReadBytes: (fileId: string) => Promise<Uint8Array>;
 }
 
 interface Window {
@@ -114,6 +128,26 @@ const aiChatStatusEl = document.getElementById("ai-chat-status") as HTMLDivEleme
 const aiChatMessagesEl = document.getElementById("ai-chat-messages") as HTMLDivElement;
 const aiChatInputEl = document.getElementById("ai-chat-input") as HTMLInputElement;
 const aiChatSendBtn = document.getElementById("ai-chat-send") as HTMLButtonElement;
+
+const pdfViewerEl = document.getElementById("pdf-viewer") as HTMLDivElement;
+const pdfCanvasEl = document.getElementById("pdf-canvas") as HTMLCanvasElement;
+const pdfPageIndicatorEl = document.getElementById("pdf-page-indicator") as HTMLSpanElement;
+const pdfPrevPageBtn = document.getElementById("pdf-prev-page") as HTMLButtonElement;
+const pdfNextPageBtn = document.getElementById("pdf-next-page") as HTMLButtonElement;
+const pdfRotateBtn = document.getElementById("pdf-rotate") as HTMLButtonElement;
+const pdfMoveLeftBtn = document.getElementById("pdf-move-left") as HTMLButtonElement;
+const pdfMoveRightBtn = document.getElementById("pdf-move-right") as HTMLButtonElement;
+const pdfSplitBtn = document.getElementById("pdf-split") as HTMLButtonElement;
+const pdfMergeBtn = document.getElementById("pdf-merge") as HTMLButtonElement;
+const pdfSummarizeBtn = document.getElementById("pdf-summarize") as HTMLButtonElement;
+const pdfExtractTableBtn = document.getElementById("pdf-extract-table") as HTMLButtonElement;
+const pdfStatusEl = document.getElementById("pdf-status") as HTMLDivElement;
+const pdfSummaryEl = document.getElementById("pdf-summary") as HTMLDivElement;
+const pdfSummaryTitleEl = document.getElementById("pdf-summary-title") as HTMLElement;
+const pdfSummaryTextEl = document.getElementById("pdf-summary-text") as HTMLParagraphElement;
+const pdfSummaryCloseBtn = document.getElementById("pdf-summary-close") as HTMLButtonElement;
+const pdfQaInputEl = document.getElementById("pdf-qa-input") as HTMLInputElement;
+const pdfQaAskBtn = document.getElementById("pdf-qa-ask") as HTMLButtonElement;
 
 let currentFolder: string | undefined;
 let currentOpenFileId: string | undefined;
@@ -171,12 +205,14 @@ function showEmpty(message: string): void {
   emptyStateEl.textContent = message;
   contentViewEl.hidden = true;
   notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
   emptyStateEl.hidden = true;
   contentViewEl.hidden = false;
   notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -184,6 +220,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   emptyStateEl.hidden = true;
   contentViewEl.hidden = true;
   notesEditorEl.hidden = false;
+  pdfViewerEl.hidden = true;
 
   currentOpenFileId = file.id;
   notesTitleEl.value = data.title;
@@ -216,6 +253,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
 
   if (result.rendered.kind === "notes") {
     showNotesEditor(file, result.rendered.data as NotesData);
+  } else if (result.rendered.kind === "pdf") {
+    await showPdfViewer(file, result.rendered.data as PdfData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -282,6 +321,212 @@ notesSummaryCloseBtn.addEventListener("click", () => {
   notesSummaryEl.hidden = true;
 });
 
+// ---- PDF viewer ----
+
+interface Window {
+  pdfjsLib?: any;
+}
+
+// pdfjs-dist ships ESM-only, and this file is deliberately a classic
+// (non-module) script (see the top of the file), so it can't `import` pdfjs
+// directly. A `new Function("s", "return import(s)")` trick would work
+// around TypeScript downleveling a literal import() back to require() — but
+// `new Function` is itself blocked by this app's CSP (no 'unsafe-eval'),
+// which would silently abort this entire script's execution at load time.
+// pdfjs-loader.mjs (loaded via a real <script type="module"> tag in
+// index.html) does the actual import and exposes the result here instead —
+// a genuine static import needs no eval and is allowed under `default-src
+// 'self'`. Module scripts execute after classic scripts have started, so
+// this polls briefly rather than assuming it's already set.
+async function getPdfjsLib(): Promise<any> {
+  for (let i = 0; i < 100 && !window.pdfjsLib; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (!window.pdfjsLib) throw new Error("pdf.js failed to load.");
+  return window.pdfjsLib;
+}
+
+let currentPdfDoc: any = null;
+let currentPdfPageNum = 1;
+let currentPdfFileId: string | undefined;
+
+async function loadAndRenderPdf(): Promise<void> {
+  if (!currentPdfFileId) return;
+  const bytes = await window.docstew.pdfReadBytes(currentPdfFileId);
+  const lib = await getPdfjsLib();
+  currentPdfDoc = await lib.getDocument({
+    data: bytes,
+    cMapUrl: "./pdfjs/cmaps/",
+    cMapPacked: true,
+    standardFontDataUrl: "./pdfjs/standard_fonts/",
+  }).promise;
+  const maxPage = currentPdfDoc.numPages;
+  if (currentPdfPageNum > maxPage) currentPdfPageNum = maxPage;
+  await renderCurrentPdfPage();
+}
+
+async function renderCurrentPdfPage(): Promise<void> {
+  if (!currentPdfDoc) return;
+  const page = await currentPdfDoc.getPage(currentPdfPageNum);
+  const viewport = page.getViewport({ scale: 1.3 });
+  const context = pdfCanvasEl.getContext("2d")!;
+  pdfCanvasEl.width = viewport.width;
+  pdfCanvasEl.height = viewport.height;
+  await page.render({ canvasContext: context, viewport }).promise;
+  pdfPageIndicatorEl.textContent = `Page ${currentPdfPageNum} of ${currentPdfDoc.numPages}`;
+}
+
+async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void> {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = false;
+
+  currentPdfFileId = file.id;
+  currentPdfPageNum = 1;
+  currentPdfDoc = null;
+  pdfSummaryEl.hidden = true;
+  pdfStatusEl.textContent = `${data.pageCount} page(s)`;
+
+  await loadAndRenderPdf();
+}
+
+async function runPdfOperation(opName: string, args: Record<string, unknown>): Promise<boolean> {
+  if (!currentPdfFileId) return false;
+  const result = await window.docstew.runOperation(currentPdfFileId, opName, args);
+  if (!result.success) {
+    pdfStatusEl.textContent = `Error: ${result.error}`;
+    return false;
+  }
+  return true;
+}
+
+pdfPrevPageBtn.addEventListener("click", () => {
+  if (currentPdfPageNum > 1) {
+    currentPdfPageNum--;
+    void renderCurrentPdfPage();
+  }
+});
+
+pdfNextPageBtn.addEventListener("click", () => {
+  if (currentPdfDoc && currentPdfPageNum < currentPdfDoc.numPages) {
+    currentPdfPageNum++;
+    void renderCurrentPdfPage();
+  }
+});
+
+pdfRotateBtn.addEventListener("click", async () => {
+  const ok = await runPdfOperation("rotatePage", { pageIndex: currentPdfPageNum - 1, degrees: 90 });
+  if (ok) {
+    pdfStatusEl.textContent = "Rotated.";
+    await loadAndRenderPdf();
+    await refreshFileList();
+  }
+});
+
+pdfMoveLeftBtn.addEventListener("click", async () => {
+  if (currentPdfPageNum <= 1) return;
+  const ok = await runPdfOperation("swapPages", { indexA: currentPdfPageNum - 1, indexB: currentPdfPageNum - 2 });
+  if (ok) {
+    currentPdfPageNum--;
+    pdfStatusEl.textContent = "Moved.";
+    await loadAndRenderPdf();
+    await refreshFileList();
+  }
+});
+
+pdfMoveRightBtn.addEventListener("click", async () => {
+  if (!currentPdfDoc || currentPdfPageNum >= currentPdfDoc.numPages) return;
+  const ok = await runPdfOperation("swapPages", { indexA: currentPdfPageNum - 1, indexB: currentPdfPageNum });
+  if (ok) {
+    currentPdfPageNum++;
+    pdfStatusEl.textContent = "Moved.";
+    await loadAndRenderPdf();
+    await refreshFileList();
+  }
+});
+
+pdfSplitBtn.addEventListener("click", async () => {
+  if (!currentPdfFileId) return;
+  const result = await window.docstew.runOperation(currentPdfFileId, "split", { atPageIndex: currentPdfPageNum - 1 });
+  if (result.success && result.newFiles) {
+    pdfStatusEl.textContent = `Split into ${result.newFiles.map((f) => f.fileName).join(" and ")}.`;
+    await refreshFileList();
+  } else {
+    pdfStatusEl.textContent = `Error: ${result.error}`;
+  }
+});
+
+async function summarizeCurrentPdf(): Promise<void> {
+  if (!currentPdfFileId) return;
+  pdfSummarizeBtn.disabled = true;
+  pdfSummarizeBtn.textContent = "Summarizing...";
+  const result = await window.docstew.aiRunTool(currentPdfFileId, "summarize");
+  pdfSummarizeBtn.disabled = false;
+  pdfSummarizeBtn.textContent = "Summarize";
+
+  pdfSummaryTitleEl.textContent = "Summary";
+  pdfSummaryEl.hidden = false;
+  if (result.success) {
+    const { summary } = result.result as { summary: string };
+    pdfSummaryTextEl.textContent = summary;
+  } else {
+    pdfSummaryTextEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+async function extractTableFromCurrentPdf(): Promise<void> {
+  if (!currentPdfFileId) return;
+  pdfExtractTableBtn.disabled = true;
+  pdfExtractTableBtn.textContent = "Extracting...";
+  const result = await window.docstew.aiRunTool(currentPdfFileId, "extractTable");
+  pdfExtractTableBtn.disabled = false;
+  pdfExtractTableBtn.textContent = "Extract Table";
+
+  pdfSummaryTitleEl.textContent = "Extracted Table";
+  pdfSummaryEl.hidden = false;
+  if (result.success) {
+    const { table } = result.result as { table: string };
+    pdfSummaryTextEl.textContent = table;
+  } else {
+    pdfSummaryTextEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+async function askAboutCurrentPdf(): Promise<void> {
+  if (!currentPdfFileId) return;
+  const question = pdfQaInputEl.value.trim();
+  if (!question) return;
+  pdfQaAskBtn.disabled = true;
+  pdfQaAskBtn.textContent = "Asking...";
+  const result = await window.docstew.aiRunTool(currentPdfFileId, "qa", { question });
+  pdfQaAskBtn.disabled = false;
+  pdfQaAskBtn.textContent = "Ask";
+
+  pdfSummaryTitleEl.textContent = `Q: ${question}`;
+  pdfSummaryEl.hidden = false;
+  if (result.success) {
+    const { answer } = result.result as { answer: string };
+    pdfSummaryTextEl.textContent = answer;
+  } else {
+    pdfSummaryTextEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+pdfMergeBtn.addEventListener("click", () => openPaletteInMode("pdf-merge-pick", "Pick a PDF to merge with..."));
+pdfSummarizeBtn.addEventListener("click", () => void summarizeCurrentPdf());
+pdfExtractTableBtn.addEventListener("click", () => void extractTableFromCurrentPdf());
+pdfSummaryCloseBtn.addEventListener("click", () => {
+  pdfSummaryEl.hidden = true;
+});
+pdfQaAskBtn.addEventListener("click", () => void askAboutCurrentPdf());
+pdfQaInputEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void askAboutCurrentPdf();
+  }
+});
+
 // ---- Folder open ----
 
 openFolderBtn.addEventListener("click", async () => {
@@ -294,7 +539,7 @@ openFolderBtn.addEventListener("click", async () => {
 
 // ---- Command palette ----
 
-type PaletteMode = "command" | "new-note";
+type PaletteMode = "command" | "new-note" | "pdf-merge-pick";
 let paletteMode: PaletteMode = "command";
 
 interface Command {
@@ -324,6 +569,11 @@ function renderPaletteResults(filterText: string): void {
     return;
   }
 
+  if (paletteMode === "pdf-merge-pick") {
+    void renderPdfMergeCandidates(filterText);
+    return;
+  }
+
   const commands = getCommands().filter((c) => c.label.toLowerCase().includes(filterText.toLowerCase()));
   if (commands.length === 0) {
     const li = document.createElement("li");
@@ -345,6 +595,52 @@ function enterNewNoteMode(): void {
   paletteInput.placeholder = "Note title...";
   paletteInput.focus();
   renderPaletteResults("");
+}
+
+function openPaletteInMode(mode: PaletteMode, placeholder: string): void {
+  palette.hidden = false;
+  paletteMode = mode;
+  paletteInput.value = "";
+  paletteInput.placeholder = placeholder;
+  paletteInput.focus();
+  renderPaletteResults("");
+}
+
+async function renderPdfMergeCandidates(filterText: string): Promise<void> {
+  const files = await window.docstew.listFiles();
+  const candidates = files.filter(
+    (f) =>
+      f.extension === ".pdf" &&
+      f.id !== currentPdfFileId &&
+      (f.title || f.fileName).toLowerCase().includes(filterText.toLowerCase())
+  );
+  if (paletteMode !== "pdf-merge-pick") return; // mode changed while listFiles() was in flight
+
+  paletteResultsEl.innerHTML = "";
+  if (candidates.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No other PDFs found in this library.";
+    paletteResultsEl.appendChild(li);
+    return;
+  }
+  for (const candidate of candidates) {
+    const li = document.createElement("li");
+    li.textContent = candidate.title || candidate.fileName;
+    li.addEventListener("click", () => void mergeWithCandidate(candidate));
+    paletteResultsEl.appendChild(li);
+  }
+}
+
+async function mergeWithCandidate(candidate: DocumentRecord): Promise<void> {
+  if (!currentPdfFileId) return;
+  const result = await window.docstew.runOperation(currentPdfFileId, "merge", { otherFilePath: candidate.filePath });
+  togglePalette(false);
+  if (result.success && result.newFiles && result.newFiles.length > 0) {
+    pdfStatusEl.textContent = `Merged into ${result.newFiles[0].fileName}.`;
+    await refreshFileList();
+  } else {
+    pdfStatusEl.textContent = `Error: ${result.error}`;
+  }
 }
 
 function showPaletteError(message: string): void {
@@ -394,8 +690,13 @@ paletteInput.addEventListener("keydown", (event) => {
     const filterText = paletteInput.value;
     const [first] = getCommands().filter((c) => c.label.toLowerCase().includes(filterText.toLowerCase()));
     if (first) first.run();
-  } else {
+  } else if (paletteMode === "new-note") {
     void createNoteFromPaletteInput();
+  } else if (paletteMode === "pdf-merge-pick") {
+    // Reuses the click handler already attached to each rendered candidate —
+    // no separate selection-tracking state needed for "pick the first match".
+    const first = paletteResultsEl.querySelector("li");
+    if (first) (first as HTMLLIElement).click();
   }
 });
 

@@ -21,7 +21,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
-    "marked": "^18.0.10"
+    "marked": "^18.0.10",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.2.108"
   },
   "build": {
     "appId": "com.docstew.app",
