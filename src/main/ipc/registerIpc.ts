@@ -104,6 +104,24 @@ export function registerIpc(
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_LIST_FOLDERS, async () => {
+    return library.listOpenFolders();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LIBRARY_CLOSE_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string) => {
+    try {
+      const removed = library.closeFolder(folderPath);
+      for (const record of removed) {
+        fullTextIndex.removeDocument(record.id);
+        ai.embeddingIndex?.removeDocument(record.id);
+        versionHistory.removeDocument(record.id);
+      }
+      return { success: true as const, removedCount: removed.length };
+    } catch (error) {
+      return { success: false as const, error: errorMessage(error) };
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.LIBRARY_LIST_FILES, async () => {
     const records = library.listFiles();
     return Promise.all(records.map((record) => enrichWithPeek(record, registry)));

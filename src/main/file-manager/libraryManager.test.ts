@@ -113,6 +113,74 @@ test("openFolder() re-scanning the same folder upserts instead of duplicating", 
   assert.equal(library.listFiles().length, 2);
 });
 
+test("openFolder() tracks the folder as open", () => {
+  const dir = makeTempFolder();
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+
+  library.openFolder(dir);
+
+  assert.deepEqual(library.listOpenFolders(), [dir]);
+});
+
+test("openFolder() on multiple folders tracks each and merges their files into one library", () => {
+  const dirA = makeTempFolder();
+  const dirB = makeTempFolder();
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+
+  library.openFolder(dirA);
+  library.openFolder(dirB);
+
+  assert.deepEqual(library.listOpenFolders().sort(), [dirA, dirB].sort());
+  assert.equal(library.listFiles().length, 4);
+});
+
+test("closeFolder() removes only that folder's files and un-tracks it", () => {
+  const dirA = makeTempFolder();
+  const dirB = makeTempFolder();
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+  library.openFolder(dirA);
+  library.openFolder(dirB);
+
+  const removed = library.closeFolder(dirA);
+
+  assert.equal(removed.length, 2);
+  assert.ok(removed.every((r) => r.filePath.startsWith(dirA)));
+  assert.deepEqual(library.listOpenFolders(), [dirB]);
+  assert.equal(library.listFiles().length, 2);
+  assert.ok(library.listFiles().every((r) => r.filePath.startsWith(dirB)));
+});
+
+test("closeFolder() doesn't remove a sibling folder that merely shares a name prefix", () => {
+  const dir = makeTempFolder();
+  const siblingDir = `${dir}2`;
+  fs.mkdirSync(siblingDir);
+  fs.writeFileSync(path.join(siblingDir, "other.txt"), "unrelated");
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+  library.openFolder(dir);
+  library.openFolder(siblingDir);
+
+  library.closeFolder(dir);
+
+  assert.deepEqual(library.listOpenFolders(), [siblingDir]);
+  assert.deepEqual(library.listFiles().map((f) => f.fileName), ["other.txt"]);
+});
+
+test("closeFolder() on a folder that was never opened is a harmless no-op", () => {
+  const dir = makeTempFolder();
+  const registry = new PluginRegistry();
+  const library = new LibraryManager(openDatabase(":memory:"), registry);
+  library.openFolder(dir);
+
+  const removed = library.closeFolder(path.join(os.tmpdir(), "never-opened"));
+
+  assert.deepEqual(removed, []);
+  assert.equal(library.listFiles().length, 2);
+});
+
 test("getFile() retrieves a single record by id", () => {
   const dir = makeTempFolder();
   const registry = new PluginRegistry();

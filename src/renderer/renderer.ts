@@ -18,6 +18,12 @@ interface OpenFolderResult {
   error?: string;
 }
 
+interface CloseFolderResult {
+  success: boolean;
+  removedCount?: number;
+  error?: string;
+}
+
 interface OpenFileResult {
   success: boolean;
   rendered?: { kind: string; data: unknown };
@@ -185,6 +191,8 @@ interface FileVersion {
 
 interface DocStewApi {
   openFolder: (folderPath?: string) => Promise<OpenFolderResult>;
+  closeFolder: (folderPath: string) => Promise<CloseFolderResult>;
+  listFolders: () => Promise<string[]>;
   listFiles: () => Promise<DocumentRecord[]>;
   openFile: (id: string) => Promise<OpenFileResult>;
   saveFile: (id: string, content: unknown) => Promise<SaveFileResult>;
@@ -208,7 +216,7 @@ interface Window {
   docstew: DocStewApi;
 }
 
-const fileListEl = document.getElementById("file-list") as HTMLUListElement;
+const fileListEl = document.getElementById("file-list") as HTMLDivElement;
 const emptyStateEl = document.getElementById("empty-state") as HTMLParagraphElement;
 const contentViewEl = document.getElementById("content-view") as HTMLPreElement;
 const openFolderBtn = document.getElementById("open-folder-btn") as HTMLButtonElement;
@@ -397,53 +405,248 @@ let currentViewedFileId: string | undefined;
 let notesPreviewMode = false;
 
 // ---- Sidebar / library ----
+//
+// The library can span multiple opened folders at once (see LibraryManager).
+// The sidebar groups files under a collapsible section per open folder, with
+// real subfolder nesting inside each — rather than the flat, ungrouped list
+// this used to render regardless of which folder (or how deeply nested) a
+// file actually came from.
 
 let lastRenderedFiles: DocumentRecord[] = [];
+let lastRenderedFolders: string[] = [];
 const batchSelectedIds = new Set<string>();
+const collapsedFolders = new Set<string>();
 
-function renderFileList(files: DocumentRecord[]): void {
-  lastRenderedFiles = files;
-  fileListEl.innerHTML = "";
+function isUnderFolder(filePath: string, folderPath: string): boolean {
+  if (filePath === folderPath) return true;
+  return filePath.startsWith(`${folderPath}/`) || filePath.startsWith(`${folderPath}\\`);
+}
+
+function folderBaseName(folderPath: string): string {
+  const segments = folderPath.split(/[\\/]+/).filter((s) => s.length > 0);
+  return segments[segments.length - 1] || folderPath;
+}
+
+interface FileTreeFolderNode {
+  kind: "folder";
+  name: string;
+  children: Map<string, FileTreeFolderNode | FileTreeFileNode>;
+}
+
+interface FileTreeFileNode {
+  kind: "file";
+  record: DocumentRecord;
+}
+
+/** Turns a flat list of files under one root folder into a nested tree by
+ * splitting each file's path (relative to that root) into segments — so a
+ * file at "notes/2024/january.md" renders nested two levels deep instead of
+ * appearing identical to a top-level file. */
+function buildFolderTree(rootPath: string, files: DocumentRecord[]): FileTreeFolderNode {
+  const root: FileTreeFolderNode = { kind: "folder", name: rootPath, children: new Map() };
   for (const file of files) {
-    const li = document.createElement("li");
-    li.dataset.id = file.id;
-    li.classList.toggle("batch-selected", batchSelectedIds.has(file.id));
+    let relative = file.filePath;
+    if (relative.startsWith(rootPath)) relative = relative.slice(rootPath.length);
+    const segments = relative.split(/[\\/]+/).filter((s) => s.length > 0);
 
-    const row = document.createElement("div");
-    row.className = "file-row";
-
-    const name = document.createElement("span");
-    name.className = "file-name";
-    name.textContent = file.title || file.fileName;
-    row.appendChild(name);
-
-    const tag = document.createElement("span");
-    tag.className = "module-tag";
-    tag.textContent = file.moduleId ?? "unsupported";
-    row.appendChild(tag);
-
-    li.appendChild(row);
-
-    if (file.tags && file.tags.length > 0) {
-      const tagsRow = document.createElement("div");
-      tagsRow.className = "file-tags";
-      for (const t of file.tags) {
-        const pill = document.createElement("span");
-        pill.className = "tag-pill";
-        pill.textContent = t;
-        tagsRow.appendChild(pill);
-      }
-      li.appendChild(tagsRow);
+    let node = root;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const segment = segments[i];
+      const existing = node.children.get(segment);
+      const child: FileTreeFolderNode =
+        existing && existing.kind === "folder" ? existing : { kind: "folder", name: segment, children: new Map() };
+      node.children.set(segment, child);
+      node = child;
     }
+    node.children.set(`file:${file.id}`, { kind: "file", record: file });
+  }
+  return root;
+}
 
-    li.addEventListener("click", (event) => {
-      if (event.ctrlKey || event.metaKey) {
-        toggleBatchSelect(file.id);
-      } else {
-        void selectFile(file);
-      }
-    });
-    fileListEl.appendChild(li);
+function renderFileListItem(file: DocumentRecord, depth: number): HTMLLIElement {
+  const li = document.createElement("li");
+  li.dataset.id = file.id;
+  li.classList.toggle("batch-selected", batchSelectedIds.has(file.id));
+  li.style.paddingLeft = `${8 + depth * 14}px`;
+
+  const row = document.createElement("div");
+  row.className = "file-row";
+
+  const name = document.createElement("span");
+  name.className = "file-name";
+  name.textContent = file.title || file.fileName;
+  row.appendChild(name);
+
+  const tag = document.createElement("span");
+  tag.className = "module-tag";
+  tag.textContent = file.moduleId ?? "unsupported";
+  row.appendChild(tag);
+
+  li.appendChild(row);
+
+  if (file.tags && file.tags.length > 0) {
+    const tagsRow = document.createElement("div");
+    tagsRow.className = "file-tags";
+    for (const t of file.tags) {
+      const pill = document.createElement("span");
+      pill.className = "tag-pill";
+      pill.textContent = t;
+      tagsRow.appendChild(pill);
+    }
+    li.appendChild(tagsRow);
+  }
+
+  li.addEventListener("click", (event) => {
+    if (event.ctrlKey || event.metaKey) {
+      toggleBatchSelect(file.id);
+    } else {
+      void selectFile(file);
+    }
+  });
+  return li;
+}
+
+function renderTreeChildren(node: FileTreeFolderNode, container: HTMLElement, depth: number): void {
+  const folders: FileTreeFolderNode[] = [];
+  const files: FileTreeFileNode[] = [];
+  for (const child of node.children.values()) {
+    if (child.kind === "folder") folders.push(child);
+    else files.push(child);
+  }
+  folders.sort((a, b) => a.name.localeCompare(b.name));
+  files.sort((a, b) => (a.record.title || a.record.fileName).localeCompare(b.record.title || b.record.fileName));
+
+  for (const folder of folders) {
+    const wrap = document.createElement("div");
+    wrap.className = "tree-subfolder";
+    const label = document.createElement("div");
+    label.className = "tree-subfolder-label";
+    label.style.paddingLeft = `${8 + depth * 14}px`;
+    label.textContent = folder.name;
+    wrap.appendChild(label);
+    renderTreeChildren(folder, wrap, depth + 1);
+    container.appendChild(wrap);
+  }
+
+  if (files.length > 0) {
+    const list = document.createElement("ul");
+    list.className = "tree-file-list";
+    for (const fileNode of files) list.appendChild(renderFileListItem(fileNode.record, depth));
+    container.appendChild(list);
+  }
+}
+
+async function closeFolderByPath(folderPath: string): Promise<void> {
+  const confirmed = window.confirm(
+    `Close "${folderBaseName(folderPath)}"? This removes its files from your library — the files themselves are not touched on disk.`
+  );
+  if (!confirmed) return;
+  const result = await window.docstew.closeFolder(folderPath);
+  if (!result.success) {
+    window.alert(`Could not close folder: ${result.error}`);
+    return;
+  }
+  collapsedFolders.delete(folderPath);
+  if (currentFolder === folderPath) currentFolder = undefined;
+  await refreshFileList();
+}
+
+function renderFolderSection(folderPath: string, files: DocumentRecord[]): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "folder-section";
+
+  const header = document.createElement("div");
+  header.className = "folder-header";
+
+  const collapsed = collapsedFolders.has(folderPath);
+  const toggleBtn = document.createElement("button");
+  toggleBtn.className = "folder-toggle";
+  toggleBtn.textContent = collapsed ? "▸" : "▾";
+  toggleBtn.title = collapsed ? "Expand" : "Collapse";
+  toggleBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (collapsed) collapsedFolders.delete(folderPath);
+    else collapsedFolders.add(folderPath);
+    renderLibrary();
+  });
+  header.appendChild(toggleBtn);
+
+  const name = document.createElement("span");
+  name.className = "folder-name";
+  name.textContent = folderBaseName(folderPath);
+  name.title = folderPath;
+  header.appendChild(name);
+
+  const count = document.createElement("span");
+  count.className = "folder-file-count";
+  count.textContent = String(files.length);
+  header.appendChild(count);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "folder-close";
+  closeBtn.textContent = "×";
+  closeBtn.title = "Close this folder";
+  closeBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void closeFolderByPath(folderPath);
+  });
+  header.appendChild(closeBtn);
+
+  section.appendChild(header);
+
+  if (!collapsed) {
+    const tree = document.createElement("div");
+    tree.className = "folder-tree";
+    renderTreeChildren(buildFolderTree(folderPath, files), tree, 0);
+    section.appendChild(tree);
+  }
+
+  return section;
+}
+
+/** Re-renders the whole sidebar from the currently cached files/folders
+ * (no refetch) — used after purely-local state changes like toggling batch
+ * selection or collapsing a folder. Call refreshFileList() instead when the
+ * underlying data may have changed. */
+function renderLibrary(): void {
+  fileListEl.innerHTML = "";
+
+  const byFolder = new Map<string, DocumentRecord[]>();
+  for (const folder of lastRenderedFolders) byFolder.set(folder, []);
+  const foldersByLengthDesc = [...lastRenderedFolders].sort((a, b) => b.length - a.length);
+  const orphaned: DocumentRecord[] = [];
+
+  for (const file of lastRenderedFiles) {
+    // Longest-prefix match, so a folder opened inside another already-open
+    // folder still gets its files grouped under the more specific one.
+    const owner = foldersByLengthDesc.find((folder) => isUnderFolder(file.filePath, folder));
+    if (owner) byFolder.get(owner)!.push(file);
+    else orphaned.push(file);
+  }
+
+  const sortedFolders = [...lastRenderedFolders].sort((a, b) => folderBaseName(a).localeCompare(folderBaseName(b)));
+  for (const folder of sortedFolders) {
+    fileListEl.appendChild(renderFolderSection(folder, byFolder.get(folder) ?? []));
+  }
+
+  if (orphaned.length > 0) {
+    const section = document.createElement("div");
+    section.className = "folder-section";
+    const header = document.createElement("div");
+    header.className = "folder-header";
+    const name = document.createElement("span");
+    name.className = "folder-name";
+    name.textContent = "Other Files";
+    name.title = "Indexed before a folder was tracked, or from a folder that's no longer open";
+    header.appendChild(name);
+    section.appendChild(header);
+    const list = document.createElement("ul");
+    list.className = "tree-file-list";
+    for (const file of orphaned.sort((a, b) => (a.title || a.fileName).localeCompare(b.title || b.fileName))) {
+      list.appendChild(renderFileListItem(file, 0));
+    }
+    section.appendChild(list);
+    fileListEl.appendChild(section);
   }
 }
 
@@ -455,7 +658,7 @@ function toggleBatchSelect(fileId: string): void {
   } else {
     batchSelectedIds.add(fileId);
   }
-  renderFileList(lastRenderedFiles);
+  renderLibrary();
   updateBatchBar();
 }
 
@@ -468,7 +671,7 @@ function updateBatchBar(): void {
 
 function clearBatchSelection(): void {
   batchSelectedIds.clear();
-  renderFileList(lastRenderedFiles);
+  renderLibrary();
   updateBatchBar();
 }
 
@@ -505,8 +708,10 @@ batchClearBtn.addEventListener("click", () => clearBatchSelection());
 batchExportBtn.addEventListener("click", () => void batchExportSelected());
 
 async function refreshFileList(): Promise<void> {
-  const files = await window.docstew.listFiles();
-  renderFileList(files);
+  const [files, folders] = await Promise.all([window.docstew.listFiles(), window.docstew.listFolders()]);
+  lastRenderedFiles = files;
+  lastRenderedFolders = folders;
+  renderLibrary();
 }
 
 // ---- Main pane ----

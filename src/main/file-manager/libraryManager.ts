@@ -1,4 +1,4 @@
-import type { Database } from "better-sqlite3";
+import type BetterSqlite3 from "better-sqlite3";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -60,16 +60,32 @@ function* walkFiles(rootDir: string): Generator<string> {
   }
 }
 
+/** A folder "contains" a path if the path equals the folder or sits under it
+ * — comparing with a trailing separator avoids a bare string-prefix match
+ * wrongly treating sibling folders that share a prefix (e.g. "Notes" vs
+ * "Notes2") as nested. */
+function isUnderFolder(filePath: string, folderPath: string): boolean {
+  const withSep = folderPath.endsWith(path.sep) ? folderPath : folderPath + path.sep;
+  return filePath === folderPath || filePath.startsWith(withSep);
+}
+
 /**
  * The File/Library Manager (docstew-plan.md §4): tracks which folders the
  * user has opened, indexes the files in them (recursively) into SQLite, and
  * resolves each file to the module (if any) that can handle it via the
- * Plugin Registry.
+ * Plugin Registry. The library can span multiple opened folders at once —
+ * `listOpenFolders()`/`closeFolder()` let the UI show which folders are
+ * currently contributing to it and remove one without touching the others.
  */
 export class LibraryManager {
-  private upsertStmt: ReturnType<Database["prepare"]>;
+  private upsertStmt: BetterSqlite3.Statement<Record<string, unknown>>;
+  private getStmt: BetterSqlite3.Statement<[string]>;
+  private listStmt: BetterSqlite3.Statement<[]>;
+  private addOpenFolderStmt: BetterSqlite3.Statement<Record<string, unknown>>;
+  private removeOpenFolderStmt: BetterSqlite3.Statement<[string]>;
+  private listOpenFoldersStmt: BetterSqlite3.Statement<[]>;
 
-  constructor(private db: Database, private registry: PluginRegistry) {
+  constructor(private db: BetterSqlite3.Database, private registry: PluginRegistry) {
     this.upsertStmt = this.db.prepare(`
       INSERT INTO documents (id, file_path, file_name, extension, module_id, size_bytes, mtime_ms, added_at)
       VALUES (@id, @file_path, @file_name, @extension, @module_id, @size_bytes, @mtime_ms, @added_at)
@@ -78,6 +94,14 @@ export class LibraryManager {
         size_bytes = excluded.size_bytes,
         mtime_ms = excluded.mtime_ms
     `);
+    this.getStmt = this.db.prepare("SELECT * FROM documents WHERE id = ?");
+    this.listStmt = this.db.prepare("SELECT * FROM documents ORDER BY file_name");
+    this.addOpenFolderStmt = this.db.prepare(`
+      INSERT INTO open_folders (path, opened_at) VALUES (@path, @opened_at)
+      ON CONFLICT(path) DO UPDATE SET opened_at = excluded.opened_at
+    `);
+    this.removeOpenFolderStmt = this.db.prepare("DELETE FROM open_folders WHERE path = ?");
+    this.listOpenFoldersStmt = this.db.prepare("SELECT path FROM open_folders ORDER BY opened_at");
   }
 
   /** Indexes (or re-indexes) a single file's metadata. Used both by openFolder()'s
@@ -108,10 +132,14 @@ export class LibraryManager {
     return record;
   }
 
-  /** Recursively scans a folder and upserts every file's metadata. */
+  /** Recursively scans a folder and upserts every file's metadata, and marks
+   * the folder as "open" so the library remembers it contributed these files
+   * (until closeFolder() says otherwise). Calling this again on an
+   * already-open folder just rescans it. */
   openFolder(folderPath: string): DocumentRecord[] {
     const records: DocumentRecord[] = [];
     const transaction = this.db.transaction(() => {
+      this.addOpenFolderStmt.run({ path: folderPath, opened_at: Date.now() });
       for (const filePath of walkFiles(folderPath)) {
         records.push(this.indexFile(filePath));
       }
@@ -120,13 +148,38 @@ export class LibraryManager {
     return records;
   }
 
+  /** Removes a folder from the library: forgets it was ever opened and
+   * prunes every document indexed from under it. Returns the removed
+   * records so the caller can also clean them out of the full-text/embedding/
+   * version-history indexes, which LibraryManager doesn't own. Files on disk
+   * are never touched — this only affects the library's index of them. */
+  closeFolder(folderPath: string): DocumentRecord[] {
+    const removed: DocumentRecord[] = [];
+    const transaction = this.db.transaction(() => {
+      const all = this.listStmt.all() as DocumentRow[];
+      for (const row of all) {
+        if (isUnderFolder(row.file_path, folderPath)) {
+          removed.push(rowToRecord(row));
+        }
+      }
+      const deleteStmt = this.db.prepare("DELETE FROM documents WHERE id = ?");
+      for (const record of removed) deleteStmt.run(record.id);
+      this.removeOpenFolderStmt.run(folderPath);
+    });
+    transaction();
+    return removed;
+  }
+
+  listOpenFolders(): string[] {
+    return (this.listOpenFoldersStmt.all() as Array<{ path: string }>).map((row) => row.path);
+  }
+
   listFiles(): DocumentRecord[] {
-    const rows = this.db.prepare("SELECT * FROM documents ORDER BY file_name").all() as DocumentRow[];
-    return rows.map(rowToRecord);
+    return (this.listStmt.all() as DocumentRow[]).map(rowToRecord);
   }
 
   getFile(id: string): DocumentRecord | undefined {
-    const row = this.db.prepare("SELECT * FROM documents WHERE id = ?").get(id) as DocumentRow | undefined;
+    const row = this.getStmt.get(id) as DocumentRow | undefined;
     return row ? rowToRecord(row) : undefined;
   }
 }

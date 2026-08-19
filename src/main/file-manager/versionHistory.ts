@@ -34,6 +34,7 @@ export class VersionHistory {
   private listStmt: BetterSqlite3.Statement<[string]>;
   private getContentStmt: BetterSqlite3.Statement<[number]>;
   private getVersionStmt: BetterSqlite3.Statement<[number]>;
+  private deleteForDocumentStmt: BetterSqlite3.Statement<[string]>;
 
   constructor(private db: BetterSqlite3.Database) {
     this.insertStmt = this.db.prepare(`
@@ -53,6 +54,7 @@ export class VersionHistory {
     this.getVersionStmt = this.db.prepare(
       `SELECT id, document_id, size_bytes, created_at FROM file_versions WHERE id = ?`
     );
+    this.deleteForDocumentStmt = this.db.prepare(`DELETE FROM file_versions WHERE document_id = ?`);
   }
 
   /** Snapshots a file's current on-disk content. A no-op for a file that
@@ -83,5 +85,12 @@ export class VersionHistory {
     if (!contentRow) throw new Error("That version no longer exists.");
     this.snapshot(versionRow.document_id, filePath);
     fs.writeFileSync(filePath, contentRow.content);
+  }
+
+  /** Deletes every version snapshot for a document — used when the document
+   * itself is being removed from the library (e.g. its folder was closed),
+   * so history for a document that no longer exists doesn't linger unreachable. */
+  removeDocument(documentId: string): void {
+    this.deleteForDocumentStmt.run(documentId);
   }
 }

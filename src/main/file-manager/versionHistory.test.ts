@@ -105,3 +105,28 @@ test("restore() rejects a version id that doesn't exist", () => {
   const filePath = tempFile("content");
   assert.throws(() => history.restore(99999, filePath), /no longer exists/);
 });
+
+test("removeDocument() deletes all of a document's real versions", () => {
+  const history = makeHistory();
+  const filePath = tempFile("v1");
+  history.snapshot("doc1", filePath);
+  fs.writeFileSync(filePath, "v2");
+  history.snapshot("doc1", filePath);
+
+  history.removeDocument("doc1");
+
+  assert.deepEqual(history.list("doc1"), []);
+});
+
+test("removeDocument() leaves other documents' versions untouched", () => {
+  const history = makeHistory();
+  const fileA = tempFile("a");
+  const fileB = tempFile("b");
+  history.snapshot("docA", fileA);
+  history.snapshot("docB", fileB);
+
+  history.removeDocument("docA");
+
+  assert.deepEqual(history.list("docA"), []);
+  assert.equal(history.list("docB").length, 1);
+});

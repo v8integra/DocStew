@@ -1,5 +1,7 @@
 export const IPC_CHANNELS = {
   LIBRARY_OPEN_FOLDER: "library:openFolder",
+  LIBRARY_CLOSE_FOLDER: "library:closeFolder",
+  LIBRARY_LIST_FOLDERS: "library:listFolders",
   LIBRARY_LIST_FILES: "library:listFiles",
   LIBRARY_OPEN_FILE: "library:openFile",
   LIBRARY_SAVE_FILE: "library:saveFile",

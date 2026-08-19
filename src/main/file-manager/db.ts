@@ -16,6 +16,15 @@ CREATE TABLE IF NOT EXISTS documents (
 
 CREATE INDEX IF NOT EXISTS idx_documents_file_path ON documents(file_path);
 
+-- Folders the user has explicitly opened into the library (plural — the
+-- library can span more than one). Closing a folder removes its row here
+-- and prunes the documents that were indexed under it, so "Open Folder"
+-- stops silently accumulating files from every folder ever opened.
+CREATE TABLE IF NOT EXISTS open_folders (
+  path TEXT PRIMARY KEY,
+  opened_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS embeddings (
   document_id TEXT PRIMARY KEY,
   model TEXT NOT NULL,

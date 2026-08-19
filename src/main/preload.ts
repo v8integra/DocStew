@@ -5,6 +5,8 @@ import { contextBridge, ipcRenderer } from "electron";
 // sibling project modules. Keep these in sync with channels.ts by hand.
 const IPC_CHANNELS = {
   LIBRARY_OPEN_FOLDER: "library:openFolder",
+  LIBRARY_CLOSE_FOLDER: "library:closeFolder",
+  LIBRARY_LIST_FOLDERS: "library:listFolders",
   LIBRARY_LIST_FILES: "library:listFiles",
   LIBRARY_OPEN_FILE: "library:openFile",
   LIBRARY_SAVE_FILE: "library:saveFile",
@@ -26,6 +28,8 @@ const IPC_CHANNELS = {
 
 contextBridge.exposeInMainWorld("docstew", {
   openFolder: (folderPath?: string) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_OPEN_FOLDER, folderPath),
+  closeFolder: (folderPath: string) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_CLOSE_FOLDER, folderPath),
+  listFolders: () => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_LIST_FOLDERS),
   listFiles: () => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_LIST_FILES),
   openFile: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_OPEN_FILE, id),
   saveFile: (id: string, content: unknown) => ipcRenderer.invoke(IPC_CHANNELS.LIBRARY_SAVE_FILE, id, content),
