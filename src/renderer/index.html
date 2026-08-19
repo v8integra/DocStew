@@ -228,6 +228,29 @@
             <img id="image-canvas" alt="" />
           </div>
         </div>
+
+        <div id="diagram-editor" hidden>
+          <div id="diagram-toolbar">
+            <button id="diagram-add-rectangle">+ Rectangle</button>
+            <button id="diagram-add-ellipse">+ Ellipse</button>
+            <button id="diagram-add-diamond">+ Diamond</button>
+            <button id="diagram-connect-mode">Connect</button>
+            <button id="diagram-delete-selected">Delete Selected</button>
+            <span class="pdf-toolbar-sep"></span>
+            <select id="diagram-export-format" title="Export format">
+              <option value="svg">Export as SVG</option>
+              <option value="png">Export as PNG</option>
+            </select>
+            <button id="diagram-export">Export</button>
+            <button id="diagram-history" title="Version History">History</button>
+            <button id="diagram-save">Save</button>
+            <span id="diagram-save-status"></span>
+          </div>
+          <p id="diagram-hint">Click a shape to select and drag it, double-click to rename. Connect mode: click two shapes to link them.</p>
+          <div id="diagram-canvas-wrap">
+            <svg id="diagram-canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+          </div>
+        </div>
       </main>
     </div>
 

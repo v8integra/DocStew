@@ -142,6 +142,31 @@ interface ImageFileData {
   sizeBytes: number;
 }
 
+type DiagramShapeType = "rectangle" | "ellipse" | "diamond";
+
+interface DiagramShapeData {
+  id: string;
+  type: DiagramShapeType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
+  color: string;
+}
+
+interface DiagramConnectorData {
+  id: string;
+  fromId: string;
+  toId: string;
+  label: string;
+}
+
+interface DiagramDocumentData {
+  shapes: DiagramShapeData[];
+  connectors: DiagramConnectorData[];
+}
+
 interface FileVersion {
   id: number;
   documentId: string;
@@ -297,6 +322,20 @@ const imageAdjustColorBtn = document.getElementById("image-adjust-color") as HTM
 const imageExportFormatEl = document.getElementById("image-export-format") as HTMLSelectElement;
 const imageExportBtn = document.getElementById("image-export") as HTMLButtonElement;
 const imageHistoryBtn = document.getElementById("image-history") as HTMLButtonElement;
+
+const diagramEditorEl = document.getElementById("diagram-editor") as HTMLDivElement;
+const diagramCanvasEl = document.getElementById("diagram-canvas") as unknown as SVGSVGElement;
+const diagramAddRectangleBtn = document.getElementById("diagram-add-rectangle") as HTMLButtonElement;
+const diagramAddEllipseBtn = document.getElementById("diagram-add-ellipse") as HTMLButtonElement;
+const diagramAddDiamondBtn = document.getElementById("diagram-add-diamond") as HTMLButtonElement;
+const diagramConnectModeBtn = document.getElementById("diagram-connect-mode") as HTMLButtonElement;
+const diagramDeleteSelectedBtn = document.getElementById("diagram-delete-selected") as HTMLButtonElement;
+const diagramExportFormatEl = document.getElementById("diagram-export-format") as HTMLSelectElement;
+const diagramExportBtn = document.getElementById("diagram-export") as HTMLButtonElement;
+const diagramHistoryBtn = document.getElementById("diagram-history") as HTMLButtonElement;
+const diagramSaveBtn = document.getElementById("diagram-save") as HTMLButtonElement;
+const diagramSaveStatusEl = document.getElementById("diagram-save-status") as HTMLSpanElement;
+const diagramHintEl = document.getElementById("diagram-hint") as HTMLParagraphElement;
 
 const batchHintEl = document.getElementById("batch-hint") as HTMLParagraphElement;
 const batchBarEl = document.getElementById("batch-bar") as HTMLDivElement;
@@ -464,6 +503,7 @@ function showEmpty(message: string): void {
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
@@ -475,6 +515,7 @@ function showGenericContent(text: string): void {
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -487,6 +528,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
 
   currentOpenFileId = file.id;
   currentViewedFileId = file.id;
@@ -530,6 +572,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
     showSdataEditor(file, result.rendered.data as StructuredDataData);
   } else if (result.rendered.kind === "image") {
     await showImageViewer(file, result.rendered.data as ImageFileData);
+  } else if (result.rendered.kind === "diagram") {
+    showDiagramEditor(file, result.rendered.data as DiagramDocumentData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -729,6 +773,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
 
   currentPdfFileId = file.id;
   currentViewedFileId = file.id;
@@ -930,6 +975,7 @@ function showWordEditor(file: DocumentRecord, data: WordData): void {
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
 
   currentWordFileId = file.id;
   currentViewedFileId = file.id;
@@ -1185,6 +1231,7 @@ function showSheetViewer(file: DocumentRecord, data: SheetData): void {
   sheetViewerEl.hidden = false;
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
 
   currentSheetFileId = file.id;
   currentViewedFileId = file.id;
@@ -1591,6 +1638,361 @@ imageRotateBtn.addEventListener("click", () => void rotateCurrentImage());
 imageAdjustColorBtn.addEventListener("click", () => void adjustColorOfCurrentImage());
 imageExportBtn.addEventListener("click", () => void exportCurrentImage());
 
+// ---- Diagram editor ----
+
+const DIAGRAM_CANVAS_WIDTH = 1600;
+const DIAGRAM_CANVAS_HEIGHT = 1000;
+const DIAGRAM_DEFAULT_HINT = diagramHintEl.textContent ?? "";
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+let currentDiagramFileId: string | undefined;
+let currentDiagramDoc: DiagramDocumentData = { shapes: [], connectors: [] };
+let diagramSelectedShapeId: string | undefined;
+let diagramSelectedConnectorId: string | undefined;
+let diagramConnectMode = false;
+let diagramConnectFirstShapeId: string | undefined;
+
+interface DiagramDragState {
+  shapeId: string;
+  mode: "move" | "resize";
+  startPoint: { x: number; y: number };
+  origShape: DiagramShapeData;
+}
+let diagramDragState: DiagramDragState | undefined;
+
+function diagramShapeCenter(shape: DiagramShapeData): { x: number; y: number } {
+  return { x: shape.x + shape.width / 2, y: shape.y + shape.height / 2 };
+}
+
+// Same boundary-point math as modules/diagrams/diagramSvg.ts's server-side
+// export renderer — duplicated rather than shared, since the renderer is a
+// classic (non-module) script with no import access to main-process code,
+// the same reason Word's DOM->block conversion has its own renderer-side
+// implementation instead of importing modules/word/wordBlocks.ts.
+function diagramBoundaryPoint(shape: DiagramShapeData, dirX: number, dirY: number): { x: number; y: number } {
+  const { x: cx, y: cy } = diagramShapeCenter(shape);
+  const rx = shape.width / 2 || 1;
+  const ry = shape.height / 2 || 1;
+  if (dirX === 0 && dirY === 0) return { x: cx, y: cy };
+  let scale: number;
+  if (shape.type === "ellipse") {
+    scale = 1 / Math.sqrt((dirX / rx) ** 2 + (dirY / ry) ** 2);
+  } else if (shape.type === "diamond") {
+    scale = 1 / (Math.abs(dirX) / rx + Math.abs(dirY) / ry);
+  } else {
+    scale = 1 / Math.max(Math.abs(dirX) / rx, Math.abs(dirY) / ry);
+  }
+  return { x: cx + dirX * scale, y: cy + dirY * scale };
+}
+
+function diagramCanvasPoint(event: MouseEvent): { x: number; y: number } {
+  const rect = diagramCanvasEl.getBoundingClientRect();
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+}
+
+function startDiagramShapeDrag(event: MouseEvent, shape: DiagramShapeData, mode: "move" | "resize"): void {
+  event.preventDefault();
+  event.stopPropagation();
+  diagramSelectedShapeId = shape.id;
+  diagramSelectedConnectorId = undefined;
+  diagramDragState = { shapeId: shape.id, mode, startPoint: diagramCanvasPoint(event), origShape: { ...shape } };
+  renderDiagramCanvas();
+}
+
+function onDiagramShapeClick(shape: DiagramShapeData): void {
+  if (diagramConnectMode) {
+    if (!diagramConnectFirstShapeId) {
+      diagramConnectFirstShapeId = shape.id;
+    } else if (diagramConnectFirstShapeId !== shape.id) {
+      const label = window.prompt("Connector label (optional):", "") ?? "";
+      currentDiagramDoc.connectors.push({
+        id: crypto.randomUUID(),
+        fromId: diagramConnectFirstShapeId,
+        toId: shape.id,
+        label,
+      });
+      diagramConnectMode = false;
+      diagramConnectFirstShapeId = undefined;
+      diagramConnectModeBtn.classList.remove("active");
+      diagramHintEl.textContent = DIAGRAM_DEFAULT_HINT;
+    }
+    renderDiagramCanvas();
+    return;
+  }
+  diagramSelectedShapeId = shape.id;
+  diagramSelectedConnectorId = undefined;
+  renderDiagramCanvas();
+}
+
+function onDiagramShapeDblClick(shape: DiagramShapeData): void {
+  const label = window.prompt("Edit label:", shape.label);
+  if (label === null) return;
+  shape.label = label;
+  renderDiagramCanvas();
+}
+
+function renderDiagramCanvas(): void {
+  diagramCanvasEl.innerHTML = "";
+  diagramCanvasEl.setAttribute("width", String(DIAGRAM_CANVAS_WIDTH));
+  diagramCanvasEl.setAttribute("height", String(DIAGRAM_CANVAS_HEIGHT));
+  diagramCanvasEl.setAttribute("viewBox", `0 0 ${DIAGRAM_CANVAS_WIDTH} ${DIAGRAM_CANVAS_HEIGHT}`);
+
+  const defs = document.createElementNS(SVG_NS, "defs");
+  defs.innerHTML =
+    '<marker id="diagram-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">' +
+    '<path d="M0,0 L0,6 L9,3 z" fill="#8a8f98"></path></marker>';
+  diagramCanvasEl.appendChild(defs);
+
+  for (const connector of currentDiagramDoc.connectors) {
+    const from = currentDiagramDoc.shapes.find((s) => s.id === connector.fromId);
+    const to = currentDiagramDoc.shapes.find((s) => s.id === connector.toId);
+    if (!from || !to) continue;
+    const fromCenter = diagramShapeCenter(from);
+    const toCenter = diagramShapeCenter(to);
+    const dirX = toCenter.x - fromCenter.x;
+    const dirY = toCenter.y - fromCenter.y;
+    const p1 = diagramBoundaryPoint(from, dirX, dirY);
+    const p2 = diagramBoundaryPoint(to, -dirX, -dirY);
+    const isSelected = connector.id === diagramSelectedConnectorId;
+
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", String(p1.x));
+    line.setAttribute("y1", String(p1.y));
+    line.setAttribute("x2", String(p2.x));
+    line.setAttribute("y2", String(p2.y));
+    line.setAttribute("stroke", isSelected ? "#5865f2" : "#8a8f98");
+    line.setAttribute("stroke-width", isSelected ? "3" : "2");
+    line.setAttribute("marker-end", "url(#diagram-arrow)");
+    (line.style as CSSStyleDeclaration).cursor = "pointer";
+    line.addEventListener("click", (event) => {
+      event.stopPropagation();
+      diagramSelectedConnectorId = connector.id;
+      diagramSelectedShapeId = undefined;
+      renderDiagramCanvas();
+    });
+    diagramCanvasEl.appendChild(line);
+
+    if (connector.label) {
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("x", String((p1.x + p2.x) / 2));
+      text.setAttribute("y", String((p1.y + p2.y) / 2 - 4));
+      text.setAttribute("font-size", "11");
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("fill", "#cfd2d8");
+      text.textContent = connector.label;
+      diagramCanvasEl.appendChild(text);
+    }
+  }
+
+  for (const shape of currentDiagramDoc.shapes) {
+    const isSelected = shape.id === diagramSelectedShapeId;
+    const group = document.createElementNS(SVG_NS, "g");
+    (group.style as CSSStyleDeclaration).cursor = diagramConnectMode ? "pointer" : "move";
+
+    let shapeEl: SVGElement;
+    const { x: cx, y: cy } = diagramShapeCenter(shape);
+    if (shape.type === "ellipse") {
+      shapeEl = document.createElementNS(SVG_NS, "ellipse");
+      shapeEl.setAttribute("cx", String(cx));
+      shapeEl.setAttribute("cy", String(cy));
+      shapeEl.setAttribute("rx", String(shape.width / 2));
+      shapeEl.setAttribute("ry", String(shape.height / 2));
+    } else if (shape.type === "diamond") {
+      shapeEl = document.createElementNS(SVG_NS, "polygon");
+      const points = `${cx},${shape.y} ${shape.x + shape.width},${cy} ${cx},${shape.y + shape.height} ${shape.x},${cy}`;
+      shapeEl.setAttribute("points", points);
+    } else {
+      shapeEl = document.createElementNS(SVG_NS, "rect");
+      shapeEl.setAttribute("x", String(shape.x));
+      shapeEl.setAttribute("y", String(shape.y));
+      shapeEl.setAttribute("width", String(shape.width));
+      shapeEl.setAttribute("height", String(shape.height));
+      shapeEl.setAttribute("rx", "4");
+    }
+    shapeEl.setAttribute("fill", shape.color || "#f0f2ff");
+    shapeEl.setAttribute("stroke", isSelected ? "#5865f2" : "#3a3c41");
+    shapeEl.setAttribute("stroke-width", isSelected ? "2.5" : "1.5");
+    group.appendChild(shapeEl);
+
+    if (shape.label) {
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("x", String(cx));
+      text.setAttribute("y", String(cy));
+      text.setAttribute("font-size", "12");
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dominant-baseline", "middle");
+      text.setAttribute("fill", "#111111");
+      text.setAttribute("pointer-events", "none");
+      text.textContent = shape.label;
+      group.appendChild(text);
+    }
+
+    group.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onDiagramShapeClick(shape);
+    });
+    group.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      onDiagramShapeDblClick(shape);
+    });
+    group.addEventListener("mousedown", (event) => {
+      if (diagramConnectMode) return;
+      startDiagramShapeDrag(event, shape, "move");
+    });
+    diagramCanvasEl.appendChild(group);
+
+    if (isSelected && !diagramConnectMode) {
+      const handle = document.createElementNS(SVG_NS, "rect");
+      handle.setAttribute("x", String(shape.x + shape.width - 6));
+      handle.setAttribute("y", String(shape.y + shape.height - 6));
+      handle.setAttribute("width", "12");
+      handle.setAttribute("height", "12");
+      handle.setAttribute("fill", "#5865f2");
+      (handle.style as CSSStyleDeclaration).cursor = "nwse-resize";
+      handle.addEventListener("mousedown", (event) => {
+        startDiagramShapeDrag(event, shape, "resize");
+      });
+      diagramCanvasEl.appendChild(handle);
+    }
+  }
+}
+
+function nextDiagramShapePosition(): { x: number; y: number } {
+  const n = currentDiagramDoc.shapes.length;
+  return { x: 40 + (n % 6) * 130, y: 40 + Math.floor(n / 6) * 100 };
+}
+
+function addDiagramShape(type: DiagramShapeType): void {
+  const label = window.prompt(`Label for the new ${type}:`, "") ?? "";
+  const pos = nextDiagramShapePosition();
+  const size = type === "diamond" ? { width: 80, height: 80 } : { width: 100, height: 50 };
+  const shape: DiagramShapeData = {
+    id: crypto.randomUUID(),
+    type,
+    x: pos.x,
+    y: pos.y,
+    width: size.width,
+    height: size.height,
+    label,
+    color: "#f0f2ff",
+  };
+  currentDiagramDoc.shapes.push(shape);
+  diagramSelectedShapeId = shape.id;
+  diagramSelectedConnectorId = undefined;
+  renderDiagramCanvas();
+}
+
+function toggleDiagramConnectMode(): void {
+  diagramConnectMode = !diagramConnectMode;
+  diagramConnectFirstShapeId = undefined;
+  diagramConnectModeBtn.classList.toggle("active", diagramConnectMode);
+  diagramHintEl.textContent = diagramConnectMode
+    ? "Connect mode: click a shape, then click another to link them."
+    : DIAGRAM_DEFAULT_HINT;
+  renderDiagramCanvas();
+}
+
+function deleteDiagramSelection(): void {
+  if (diagramSelectedShapeId) {
+    const id = diagramSelectedShapeId;
+    currentDiagramDoc.shapes = currentDiagramDoc.shapes.filter((s) => s.id !== id);
+    currentDiagramDoc.connectors = currentDiagramDoc.connectors.filter((c) => c.fromId !== id && c.toId !== id);
+    diagramSelectedShapeId = undefined;
+  } else if (diagramSelectedConnectorId) {
+    const id = diagramSelectedConnectorId;
+    currentDiagramDoc.connectors = currentDiagramDoc.connectors.filter((c) => c.id !== id);
+    diagramSelectedConnectorId = undefined;
+  }
+  renderDiagramCanvas();
+}
+
+function showDiagramEditor(file: DocumentRecord, data: DiagramDocumentData): void {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = false;
+
+  currentDiagramFileId = file.id;
+  currentViewedFileId = file.id;
+  currentDiagramDoc = data;
+  diagramSelectedShapeId = undefined;
+  diagramSelectedConnectorId = undefined;
+  diagramConnectMode = false;
+  diagramConnectFirstShapeId = undefined;
+  diagramConnectModeBtn.classList.remove("active");
+  diagramHintEl.textContent = DIAGRAM_DEFAULT_HINT;
+  diagramSaveStatusEl.textContent = "";
+  renderDiagramCanvas();
+}
+
+async function saveCurrentDiagram(): Promise<void> {
+  if (!currentDiagramFileId) return;
+  diagramSaveStatusEl.textContent = "Saving...";
+  const result = await window.docstew.saveFile(currentDiagramFileId, currentDiagramDoc);
+  if (result.success) {
+    diagramSaveStatusEl.textContent = "Saved";
+    await refreshFileList();
+  } else {
+    diagramSaveStatusEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+async function exportCurrentDiagram(): Promise<void> {
+  if (!currentDiagramFileId) return;
+  const format = diagramExportFormatEl.value;
+  diagramExportBtn.disabled = true;
+  diagramExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentDiagramFileId, format);
+  diagramExportBtn.disabled = false;
+  diagramExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    diagramSaveStatusEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    diagramSaveStatusEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
+diagramCanvasEl.addEventListener("click", () => {
+  diagramSelectedShapeId = undefined;
+  diagramSelectedConnectorId = undefined;
+  renderDiagramCanvas();
+});
+
+document.addEventListener("mousemove", (event) => {
+  if (!diagramDragState || diagramEditorEl.hidden) return;
+  const shape = currentDiagramDoc.shapes.find((s) => s.id === diagramDragState!.shapeId);
+  if (!shape) return;
+  const point = diagramCanvasPoint(event);
+  const dx = point.x - diagramDragState.startPoint.x;
+  const dy = point.y - diagramDragState.startPoint.y;
+  if (diagramDragState.mode === "move") {
+    shape.x = diagramDragState.origShape.x + dx;
+    shape.y = diagramDragState.origShape.y + dy;
+  } else {
+    shape.width = Math.max(20, diagramDragState.origShape.width + dx);
+    shape.height = Math.max(20, diagramDragState.origShape.height + dy);
+  }
+  renderDiagramCanvas();
+});
+
+document.addEventListener("mouseup", () => {
+  diagramDragState = undefined;
+});
+
+diagramAddRectangleBtn.addEventListener("click", () => addDiagramShape("rectangle"));
+diagramAddEllipseBtn.addEventListener("click", () => addDiagramShape("ellipse"));
+diagramAddDiamondBtn.addEventListener("click", () => addDiagramShape("diamond"));
+diagramConnectModeBtn.addEventListener("click", () => toggleDiagramConnectMode());
+diagramDeleteSelectedBtn.addEventListener("click", () => deleteDiagramSelection());
+diagramSaveBtn.addEventListener("click", () => void saveCurrentDiagram());
+diagramExportBtn.addEventListener("click", () => void exportCurrentDiagram());
+
 // ---- Folder open ----
 
 openFolderBtn.addEventListener("click", async () => {
@@ -1790,6 +2192,9 @@ document.addEventListener("keydown", (event) => {
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !sdataEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentSdata();
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !diagramEditorEl.hidden) {
+    event.preventDefault();
+    void saveCurrentDiagram();
   }
 });
 
@@ -2038,6 +2443,7 @@ wordHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sheetHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sdataHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 imageHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+diagramHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 
 // ---- Translation review panel ----
 

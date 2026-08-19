@@ -1114,3 +1114,51 @@ button:hover {
   max-height: 100%;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
+
+#diagram-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+}
+
+#diagram-editor[hidden] {
+  display: none;
+}
+
+#diagram-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#diagram-connect-mode.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+#diagram-save-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  min-width: 80px;
+}
+
+#diagram-hint {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+#diagram-canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+#diagram-canvas {
+  display: block;
+}
