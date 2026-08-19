@@ -6,6 +6,7 @@ import { LibraryManager } from "./file-manager/libraryManager";
 import { PluginRegistry } from "./plugin-registry/registry";
 import { registerIpc } from "./ipc/registerIpc";
 import { registerPdfIpc } from "./ipc/pdfIpc";
+import { registerImagesIpc } from "./ipc/imagesIpc";
 import { listModels } from "./ai-engine/ollamaClient";
 import { selectModels } from "./ai-engine/modelSelection";
 import { setModels } from "./ai-engine/config";
@@ -44,6 +45,7 @@ app.whenReady().then(async () => {
 
   registerIpc(library, registry, fullTextIndex, versionHistory, { embeddingIndex, chatModel, embedModel });
   registerPdfIpc(library);
+  registerImagesIpc(library);
 
   createWindow();
 

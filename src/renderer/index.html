@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:;" />
   <title>DocStew</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -200,6 +200,27 @@
           </div>
           <textarea id="sdata-raw" spellcheck="false"></textarea>
           <div id="sdata-preview" hidden></div>
+        </div>
+
+        <div id="image-viewer" hidden>
+          <div id="image-toolbar">
+            <span id="image-info"></span>
+            <button id="image-crop">Crop</button>
+            <button id="image-resize">Resize</button>
+            <button id="image-rotate">Rotate</button>
+            <button id="image-adjust-color">Adjust Color</button>
+            <span class="pdf-toolbar-sep"></span>
+            <select id="image-export-format" title="Export format">
+              <option value="png">Export as PNG</option>
+              <option value="jpg">Export as JPG</option>
+              <option value="webp">Export as WebP</option>
+            </select>
+            <button id="image-export">Export</button>
+            <button id="image-history" title="Version History">History</button>
+          </div>
+          <div id="image-canvas-wrap">
+            <img id="image-canvas" alt="" />
+          </div>
         </div>
       </main>
     </div>

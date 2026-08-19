@@ -124,6 +124,14 @@ interface StructuredDataData {
   html: string;
 }
 
+interface ImageFileData {
+  width: number;
+  height: number;
+  format: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 interface FileVersion {
   id: number;
   documentId: string;
@@ -146,6 +154,7 @@ interface DocStewApi {
   aiChat: (question: string) => Promise<AiChatResult>;
   aiRunTool: (fileId: string, toolName: string, args?: Record<string, unknown>) => Promise<AiRunToolResult>;
   pdfReadBytes: (fileId: string) => Promise<Uint8Array>;
+  imageReadBytes: (fileId: string) => Promise<Uint8Array>;
   search: (query: string) => Promise<{ results: Array<DocumentRecord & { snippet: string }> }>;
   listVersions: (fileId: string) => Promise<FileVersion[]>;
   restoreVersion: (fileId: string, versionId: number) => Promise<SaveFileResult>;
@@ -264,6 +273,17 @@ const sdataSummaryTextEl = document.getElementById("sdata-summary-text") as HTML
 const sdataSummaryCloseBtn = document.getElementById("sdata-summary-close") as HTMLButtonElement;
 const sdataRawEl = document.getElementById("sdata-raw") as HTMLTextAreaElement;
 const sdataPreviewEl = document.getElementById("sdata-preview") as HTMLDivElement;
+
+const imageViewerEl = document.getElementById("image-viewer") as HTMLDivElement;
+const imageInfoEl = document.getElementById("image-info") as HTMLSpanElement;
+const imageCanvasEl = document.getElementById("image-canvas") as HTMLImageElement;
+const imageCropBtn = document.getElementById("image-crop") as HTMLButtonElement;
+const imageResizeBtn = document.getElementById("image-resize") as HTMLButtonElement;
+const imageRotateBtn = document.getElementById("image-rotate") as HTMLButtonElement;
+const imageAdjustColorBtn = document.getElementById("image-adjust-color") as HTMLButtonElement;
+const imageExportFormatEl = document.getElementById("image-export-format") as HTMLSelectElement;
+const imageExportBtn = document.getElementById("image-export") as HTMLButtonElement;
+const imageHistoryBtn = document.getElementById("image-history") as HTMLButtonElement;
 
 const batchHintEl = document.getElementById("batch-hint") as HTMLParagraphElement;
 const batchBarEl = document.getElementById("batch-bar") as HTMLDivElement;
@@ -430,6 +450,7 @@ function showEmpty(message: string): void {
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
@@ -440,6 +461,7 @@ function showGenericContent(text: string): void {
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -451,6 +473,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
 
   currentOpenFileId = file.id;
   currentViewedFileId = file.id;
@@ -492,6 +515,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
     showSheetViewer(file, result.rendered.data as SheetData);
   } else if (result.rendered.kind === "structured-data") {
     showSdataEditor(file, result.rendered.data as StructuredDataData);
+  } else if (result.rendered.kind === "image") {
+    await showImageViewer(file, result.rendered.data as ImageFileData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -638,6 +663,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
 
   currentPdfFileId = file.id;
   currentViewedFileId = file.id;
@@ -814,6 +840,7 @@ function showWordEditor(file: DocumentRecord, data: WordData): void {
   wordEditorEl.hidden = false;
   sheetViewerEl.hidden = true;
   sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
 
   currentWordFileId = file.id;
   currentViewedFileId = file.id;
@@ -1068,6 +1095,7 @@ function showSheetViewer(file: DocumentRecord, data: SheetData): void {
   wordEditorEl.hidden = true;
   sheetViewerEl.hidden = false;
   sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
 
   currentSheetFileId = file.id;
   currentViewedFileId = file.id;
@@ -1332,6 +1360,147 @@ sdataRawEl.addEventListener("input", () => {
   clearTimeout(sdataValidateDebounce);
   sdataValidateDebounce = setTimeout(() => void validateSdataRaw(), 400);
 });
+
+// ---- Image viewer ----
+
+let currentImageFileId: string | undefined;
+let currentImageObjectUrl: string | undefined;
+
+async function refreshImageDisplay(): Promise<void> {
+  if (!currentImageFileId) return;
+  const [bytes, openResult] = await Promise.all([
+    window.docstew.imageReadBytes(currentImageFileId),
+    window.docstew.openFile(currentImageFileId),
+  ]);
+  const data = openResult.rendered?.data as ImageFileData | undefined;
+  const mimeType = data?.mimeType ?? "application/octet-stream";
+
+  if (currentImageObjectUrl) URL.revokeObjectURL(currentImageObjectUrl);
+  currentImageObjectUrl = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mimeType }));
+  imageCanvasEl.src = currentImageObjectUrl;
+
+  if (data) {
+    imageInfoEl.textContent = `${data.width} × ${data.height} px · ${data.format.toUpperCase()} · ${formatBytes(data.sizeBytes)}`;
+  }
+}
+
+async function showImageViewer(file: DocumentRecord, data: ImageFileData): Promise<void> {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = false;
+
+  currentImageFileId = file.id;
+  currentViewedFileId = file.id;
+  imageInfoEl.textContent = `${data.width} × ${data.height} px · ${data.format.toUpperCase()} · ${formatBytes(data.sizeBytes)}`;
+  await refreshImageDisplay();
+}
+
+async function cropCurrentImage(): Promise<void> {
+  if (!currentImageFileId) return;
+  const input = window.prompt("Crop rectangle as x,y,width,height (pixels):", "0,0,100,100");
+  if (!input) return;
+  const parts = input.split(",").map((s) => Number(s.trim()));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+    window.alert("Enter four numbers separated by commas: x,y,width,height");
+    return;
+  }
+  const [x, y, width, height] = parts;
+  const result = await window.docstew.runOperation(currentImageFileId, "crop", { x, y, width, height });
+  if (result.success) {
+    await refreshImageDisplay();
+    await refreshFileList();
+  } else {
+    window.alert(`Could not crop: ${result.error}`);
+  }
+}
+
+async function resizeCurrentImage(): Promise<void> {
+  if (!currentImageFileId) return;
+  const input = window.prompt(
+    "Resize to width,height in pixels (leave one blank to preserve aspect ratio, e.g. '400,'):",
+    ""
+  );
+  if (!input) return;
+  const [widthStr, heightStr] = input.split(",");
+  const args: Record<string, unknown> = {};
+  if (widthStr && widthStr.trim()) args.width = Number(widthStr.trim());
+  if (heightStr && heightStr.trim()) args.height = Number(heightStr.trim());
+  const result = await window.docstew.runOperation(currentImageFileId, "resize", args);
+  if (result.success) {
+    await refreshImageDisplay();
+    await refreshFileList();
+  } else {
+    window.alert(`Could not resize: ${result.error}`);
+  }
+}
+
+async function rotateCurrentImage(): Promise<void> {
+  if (!currentImageFileId) return;
+  const input = window.prompt("Rotate clockwise by how many degrees?", "90");
+  if (!input) return;
+  const degrees = Number(input.trim());
+  if (!Number.isFinite(degrees)) {
+    window.alert("Enter a number.");
+    return;
+  }
+  const result = await window.docstew.runOperation(currentImageFileId, "rotate", { degrees });
+  if (result.success) {
+    await refreshImageDisplay();
+    await refreshFileList();
+  } else {
+    window.alert(`Could not rotate: ${result.error}`);
+  }
+}
+
+async function adjustColorOfCurrentImage(): Promise<void> {
+  if (!currentImageFileId) return;
+  const input = window.prompt("Brightness,Contrast,Saturation multipliers (1 = unchanged):", "1,1,1");
+  if (!input) return;
+  const parts = input.split(",").map((s) => Number(s.trim()));
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) {
+    window.alert("Enter three numbers separated by commas: brightness,contrast,saturation");
+    return;
+  }
+  const [brightness, contrast, saturation] = parts;
+  const result = await window.docstew.runOperation(currentImageFileId, "adjustColor", {
+    brightness,
+    contrast,
+    saturation,
+  });
+  if (result.success) {
+    await refreshImageDisplay();
+    await refreshFileList();
+  } else {
+    window.alert(`Could not adjust color: ${result.error}`);
+  }
+}
+
+async function exportCurrentImage(): Promise<void> {
+  if (!currentImageFileId) return;
+  const format = imageExportFormatEl.value;
+  imageExportBtn.disabled = true;
+  imageExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentImageFileId, format);
+  imageExportBtn.disabled = false;
+  imageExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    imageInfoEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    window.alert(`Export error: ${result.error}`);
+  }
+}
+
+imageCropBtn.addEventListener("click", () => void cropCurrentImage());
+imageResizeBtn.addEventListener("click", () => void resizeCurrentImage());
+imageRotateBtn.addEventListener("click", () => void rotateCurrentImage());
+imageAdjustColorBtn.addEventListener("click", () => void adjustColorOfCurrentImage());
+imageExportBtn.addEventListener("click", () => void exportCurrentImage());
 
 // ---- Folder open ----
 
@@ -1779,6 +1948,7 @@ pdfHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 wordHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sheetHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sdataHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+imageHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 
 // ---- Translation review panel ----
 

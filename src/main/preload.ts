@@ -21,6 +21,7 @@ const IPC_CHANNELS = {
   AI_CHAT: "ai:chat",
   AI_RUN_TOOL: "ai:runTool",
   PDF_READ_BYTES: "pdf:readBytes",
+  IMAGE_READ_BYTES: "image:readBytes",
 } as const;
 
 contextBridge.exposeInMainWorld("docstew", {
@@ -46,4 +47,5 @@ contextBridge.exposeInMainWorld("docstew", {
   aiRunTool: (fileId: string, toolName: string, args?: Record<string, unknown>) =>
     ipcRenderer.invoke(IPC_CHANNELS.AI_RUN_TOOL, fileId, toolName, args),
   pdfReadBytes: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.PDF_READ_BYTES, fileId),
+  imageReadBytes: (fileId: string) => ipcRenderer.invoke(IPC_CHANNELS.IMAGE_READ_BYTES, fileId),
 });

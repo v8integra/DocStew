@@ -16,4 +16,5 @@ export const IPC_CHANNELS = {
   AI_CHAT: "ai:chat",
   AI_RUN_TOOL: "ai:runTool",
   PDF_READ_BYTES: "pdf:readBytes",
+  IMAGE_READ_BYTES: "image:readBytes",
 } as const;
