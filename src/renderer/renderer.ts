@@ -76,8 +76,18 @@ interface RunOperationResult {
   error?: string;
 }
 
+interface PdfFormFieldInfo {
+  name: string;
+  type: "text" | "checkbox" | "unsupported";
+  value: string | boolean;
+  pageIndex: number;
+  rect: { x: number; y: number; width: number; height: number };
+}
+
 interface PdfData {
   pageCount: number;
+  formFields: PdfFormFieldInfo[];
+  pageSizes: Array<{ width: number; height: number }>;
 }
 
 interface WordData {
@@ -217,6 +227,9 @@ const pdfQaInputEl = document.getElementById("pdf-qa-input") as HTMLInputElement
 const pdfQaAskBtn = document.getElementById("pdf-qa-ask") as HTMLButtonElement;
 const pdfExportFormatEl = document.getElementById("pdf-export-format") as HTMLSelectElement;
 const pdfExportBtn = document.getElementById("pdf-export") as HTMLButtonElement;
+const pdfFormOverlayEl = document.getElementById("pdf-form-overlay") as HTMLDivElement;
+const pdfFormHintEl = document.getElementById("pdf-form-hint") as HTMLParagraphElement;
+const pdfSaveFormBtn = document.getElementById("pdf-save-form") as HTMLButtonElement;
 
 const wordEditorEl = document.getElementById("word-editor") as HTMLDivElement;
 const wordContentEl = document.getElementById("word-content") as HTMLDivElement;
@@ -628,6 +641,57 @@ async function getPdfjsLib(): Promise<any> {
 let currentPdfDoc: any = null;
 let currentPdfPageNum = 1;
 let currentPdfFileId: string | undefined;
+let currentPdfFormFields: PdfFormFieldInfo[] = [];
+let currentPdfFieldValues: Record<string, string | boolean> = {};
+
+// pdf-lib's field rects are in PDF user-space (origin bottom-left, points).
+// pdfjs's viewport knows how to correctly map that into canvas pixel-space
+// while accounting for page rotation and the render scale — reimplementing
+// that math by hand (flipping y against page height) would silently break
+// on any rotated page, so this defers to pdfjs's own conversion instead.
+function pdfRectToOverlayBox(
+  rect: { x: number; y: number; width: number; height: number },
+  viewport: any
+): { left: number; top: number; width: number; height: number } {
+  const [vx1, vy1] = viewport.convertToViewportPoint(rect.x, rect.y);
+  const [vx2, vy2] = viewport.convertToViewportPoint(rect.x + rect.width, rect.y + rect.height);
+  return {
+    left: Math.min(vx1, vx2),
+    top: Math.min(vy1, vy2),
+    width: Math.abs(vx2 - vx1),
+    height: Math.abs(vy2 - vy1),
+  };
+}
+
+function renderPdfFormOverlay(viewport: any): void {
+  pdfFormOverlayEl.innerHTML = "";
+  const fieldsOnPage = currentPdfFormFields.filter((f) => f.pageIndex === currentPdfPageNum - 1);
+  for (const field of fieldsOnPage) {
+    if (field.type === "unsupported") continue;
+    const box = pdfRectToOverlayBox(field.rect, viewport);
+    const input = document.createElement("input");
+    input.className = `pdf-form-field pdf-form-field-${field.type}`;
+    input.style.left = `${box.left}px`;
+    input.style.top = `${box.top}px`;
+    input.style.width = `${box.width}px`;
+    input.style.height = `${box.height}px`;
+
+    if (field.type === "checkbox") {
+      input.type = "checkbox";
+      input.checked = Boolean(currentPdfFieldValues[field.name] ?? field.value);
+      input.addEventListener("change", () => {
+        currentPdfFieldValues[field.name] = input.checked;
+      });
+    } else {
+      input.type = "text";
+      input.value = String(currentPdfFieldValues[field.name] ?? field.value ?? "");
+      input.addEventListener("input", () => {
+        currentPdfFieldValues[field.name] = input.value;
+      });
+    }
+    pdfFormOverlayEl.appendChild(input);
+  }
+}
 
 async function loadAndRenderPdf(): Promise<void> {
   if (!currentPdfFileId) return;
@@ -653,6 +717,7 @@ async function renderCurrentPdfPage(): Promise<void> {
   pdfCanvasEl.height = viewport.height;
   await page.render({ canvasContext: context, viewport }).promise;
   pdfPageIndicatorEl.textContent = `Page ${currentPdfPageNum} of ${currentPdfDoc.numPages}`;
+  renderPdfFormOverlay(viewport);
 }
 
 async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void> {
@@ -669,11 +734,35 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   currentViewedFileId = file.id;
   currentPdfPageNum = 1;
   currentPdfDoc = null;
+  currentPdfFormFields = data.formFields;
+  currentPdfFieldValues = {};
   pdfSummaryEl.hidden = true;
   pdfStatusEl.textContent = `${data.pageCount} page(s)`;
+  pdfFormHintEl.hidden = data.formFields.length === 0;
+  pdfSaveFormBtn.hidden = data.formFields.length === 0;
 
   await loadAndRenderPdf();
 }
+
+async function saveCurrentPdfForm(): Promise<void> {
+  if (!currentPdfFileId) return;
+  pdfSaveFormBtn.disabled = true;
+  pdfSaveFormBtn.textContent = "Saving...";
+  const result = await window.docstew.runOperation(currentPdfFileId, "fillForm", { values: currentPdfFieldValues });
+  pdfSaveFormBtn.disabled = false;
+  pdfSaveFormBtn.textContent = "Save Form";
+  if (result.success) {
+    const renderData = (result.result as { renderData: PdfData }).renderData;
+    currentPdfFormFields = renderData.formFields;
+    pdfStatusEl.textContent = "Form saved.";
+    await renderCurrentPdfPage();
+    await refreshFileList();
+  } else {
+    pdfStatusEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+pdfSaveFormBtn.addEventListener("click", () => void saveCurrentPdfForm());
 
 async function runPdfOperation(opName: string, args: Record<string, unknown>): Promise<boolean> {
   if (!currentPdfFileId) return false;

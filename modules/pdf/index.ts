@@ -1,6 +1,8 @@
 import * as fs from "fs";
 import { extractFullText } from "./textExtraction";
 import { getPageCount, getTitle, rotatePage, swapPages, mergePdfs, splitPdf } from "./pdfOperations";
+import { listFormFields, fillFormFields, flattenFilledCopy } from "./pdfForms";
+import type { FormFieldInfo, PageSize } from "./pdfForms";
 import { chat } from "../../src/main/ai-engine/ollamaClient";
 import { getChatModel } from "../../src/main/ai-engine/config";
 import type {
@@ -15,6 +17,8 @@ import type {
 
 export interface PdfRenderData {
   pageCount: number;
+  formFields: FormFieldInfo[];
+  pageSizes: PageSize[];
 }
 
 // A local 3B-class model's usable context is small; capping keeps prompts
@@ -142,6 +146,20 @@ const splitOperation: ModuleOperation = {
   },
 };
 
+const fillFormOperation: ModuleOperation = {
+  name: "fillForm",
+  description: "Write values into this PDF's form fields.",
+  parameters: { values: { type: "object" } },
+  async handler(handle: DocumentHandle, args: Record<string, unknown>): Promise<unknown> {
+    const values = (args.values ?? {}) as Record<string, string | boolean>;
+    await fillFormFields(handle.filePath, values);
+    const pageCount = await getPageCount(handle.filePath);
+    const { fields, pageSizes } = await listFormFields(handle.filePath);
+    const renderData: PdfRenderData = { pageCount, formFields: fields, pageSizes };
+    return { renderData };
+  },
+};
+
 const pdfModule: DocStewModule = {
   id: "pdf",
   supportedExtensions: [".pdf"],
@@ -152,16 +170,20 @@ const pdfModule: DocStewModule = {
 
   async render(handle: DocumentHandle): Promise<RenderDescriptor> {
     const pageCount = await getPageCount(handle.filePath);
-    const data: PdfRenderData = { pageCount };
+    const { fields, pageSizes } = await listFormFields(handle.filePath);
+    const data: PdfRenderData = { pageCount, formFields: fields, pageSizes };
     return { kind: "pdf", data };
   },
 
   save(): void {
-    throw new Error("The PDF module doesn't support in-place editing yet — use rotate/merge/split instead.");
+    throw new Error(
+      "The PDF module doesn't support in-place editing yet — use rotate/merge/split/fillForm instead."
+    );
   },
 
   async export(handle: DocumentHandle, format: string): Promise<Buffer> {
     if (format === "pdf") return fs.readFileSync(handle.filePath);
+    if (format === "pdf-filled") return flattenFilledCopy(handle.filePath);
     if (format === "txt") return Buffer.from(await extractFullText(handle.filePath), "utf-8");
     throw new Error(`pdf module cannot export to "${format}"`);
   },
@@ -176,7 +198,7 @@ const pdfModule: DocStewModule = {
   },
 
   aiTools: [summarizeTool, qaTool, extractTableTool],
-  operations: [rotateOperation, swapPagesOperation, mergeOperation, splitOperation],
+  operations: [rotateOperation, swapPagesOperation, mergeOperation, splitOperation, fillFormOperation],
 };
 
 export default pdfModule;

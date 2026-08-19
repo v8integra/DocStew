@@ -319,9 +319,52 @@ button:hover {
   padding: 16px;
 }
 
+#pdf-canvas-stack {
+  position: relative;
+  height: fit-content;
+}
+
 #pdf-canvas {
+  display: block;
   height: fit-content;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+#pdf-form-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-form-field {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  background: rgba(88, 101, 242, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.pdf-form-field-checkbox {
+  background: var(--bg);
+}
+
+#pdf-form-hint {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+#pdf-form-hint[hidden] {
+  display: none;
+}
+
+#pdf-save-form[hidden] {
+  display: none;
 }
 
 #pdf-qa-row {

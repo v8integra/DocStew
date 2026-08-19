@@ -81,21 +81,27 @@
             <button id="pdf-summarize">Summarize</button>
             <button id="pdf-extract-table">Extract Table</button>
             <span class="pdf-toolbar-sep"></span>
+            <button id="pdf-save-form" hidden>Save Form</button>
             <select id="pdf-export-format" title="Export format">
               <option value="txt">Export as Text</option>
               <option value="pdf">Export as PDF (copy)</option>
+              <option value="pdf-filled">Export as Filled PDF</option>
             </select>
             <button id="pdf-export">Export</button>
             <button id="pdf-history" title="Version History">History</button>
           </div>
           <div id="pdf-status"></div>
+          <p id="pdf-form-hint" hidden>This PDF has fillable fields — fill them in below, then Save Form.</p>
           <div id="pdf-summary" hidden>
             <strong id="pdf-summary-title">Summary</strong>
             <button id="pdf-summary-close" title="Close">&times;</button>
             <p id="pdf-summary-text"></p>
           </div>
           <div id="pdf-canvas-wrap">
-            <canvas id="pdf-canvas"></canvas>
+            <div id="pdf-canvas-stack">
+              <canvas id="pdf-canvas"></canvas>
+              <div id="pdf-form-overlay"></div>
+            </div>
           </div>
           <div id="pdf-qa-row">
             <input id="pdf-qa-input" type="text" placeholder="Ask a question about this PDF..." />

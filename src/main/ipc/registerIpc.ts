@@ -58,6 +58,19 @@ async function reindexDocument(
   }
 }
 
+/** Most export format identifiers double as their file extension directly
+ * (`"json"`, `"webp"`, ...). A few describe a variant of an existing
+ * extension (PDF's `"pdf-filled"` — a flattened copy, still a real .pdf) —
+ * for those, the part before the dash is the real extension and the part
+ * after becomes a descriptive filename suffix, so the output is a properly
+ * recognized `name-filled.pdf` rather than a literal `name.pdf-filled` that
+ * no module would claim by extension. */
+function splitExportFormat(format: string): { extension: string; suffix?: string } {
+  const dashIndex = format.indexOf("-");
+  if (dashIndex === -1) return { extension: format };
+  return { extension: format.slice(0, dashIndex), suffix: format.slice(dashIndex + 1) };
+}
+
 function uniqueOutputPath(dir: string, baseName: string, extension: string): string {
   let candidate = path.join(dir, `${baseName}.${extension}`);
   let n = 2;
@@ -317,7 +330,8 @@ export function registerIpc(
         const buffer = await mod.export(handle, format);
         const dir = path.dirname(record.filePath);
         const baseName = path.basename(record.filePath, path.extname(record.filePath));
-        const outputPath = uniqueOutputPath(dir, baseName, format);
+        const { extension, suffix } = splitExportFormat(format);
+        const outputPath = uniqueOutputPath(dir, suffix ? `${baseName}-${suffix}` : baseName, extension);
         fs.writeFileSync(outputPath, buffer);
         const newRecord = library.indexFile(outputPath);
         await reindexDocument(newRecord, registry, fullTextIndex, ai.embeddingIndex);

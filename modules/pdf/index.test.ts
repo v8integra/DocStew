@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import pdfModule from "./index";
 import type { PdfRenderData } from "./index";
 import { makeTestPdf } from "./testFixtures/makeTestPdf";
+import { makeTestFormPdf } from "./testFixtures/makeTestFormPdf";
 import { setModels } from "../../src/main/ai-engine/config";
 import { withFakeOllamaServer, fakeChatHandler } from "../../src/main/ai-engine/testFixtures/fakeOllamaServer";
 
@@ -19,6 +20,23 @@ test("render() reports the real page count", async () => {
   const rendered = await pdfModule.render(handle);
   assert.equal(rendered.kind, "pdf");
   assert.equal((rendered.data as PdfRenderData).pageCount, 3);
+});
+
+test("render() includes real detected form fields", async () => {
+  const filePath = await makeTestFormPdf();
+  const handle = await pdfModule.open(filePath);
+  const rendered = await pdfModule.render(handle);
+  const data = rendered.data as PdfRenderData;
+  assert.equal(data.formFields.length, 2);
+  assert.ok(data.formFields.some((f) => f.name === "name" && f.type === "text"));
+  assert.ok(data.formFields.some((f) => f.name === "agree" && f.type === "checkbox"));
+});
+
+test("render() reports no form fields for a plain PDF", async () => {
+  const filePath = await makeTestPdf(["plain"]);
+  const handle = await pdfModule.open(filePath);
+  const rendered = await pdfModule.render(handle);
+  assert.deepEqual((rendered.data as PdfRenderData).formFields, []);
 });
 
 test("save() refuses rather than silently doing nothing", async () => {
@@ -41,6 +59,18 @@ test("export() to pdf returns the raw file bytes", async () => {
   const handle = await pdfModule.open(filePath);
   const buf = await pdfModule.export(handle, "pdf");
   assert.match(buf.toString("latin1"), /^%PDF-/);
+});
+
+test("export() to pdf-filled returns a real flattened copy reflecting saved field values", async () => {
+  const filePath = await makeTestFormPdf();
+  const handle = await pdfModule.open(filePath);
+  const fillOp = pdfModule.operations!.find((o) => o.name === "fillForm")!;
+  await fillOp.handler(handle, { values: { name: "Carol", agree: true } });
+
+  const buf = await pdfModule.export(handle, "pdf-filled");
+  const { PDFDocument } = await import("pdf-lib");
+  const flatDoc = await PDFDocument.load(buf);
+  assert.equal(flatDoc.getForm().getFields().length, 0);
 });
 
 test("export() rejects an unsupported format", async () => {
@@ -132,6 +162,24 @@ test("split operation returns the two newly created file paths", async () => {
   const result = (await op.handler(handle, { atPageIndex: 1 })) as { newFiles: string[] };
 
   assert.equal(result.newFiles.length, 2);
+});
+
+test("fillForm operation writes real values to disk and returns fresh render data", async () => {
+  const filePath = await makeTestFormPdf();
+  const handle = await pdfModule.open(filePath);
+  const op = pdfModule.operations!.find((o) => o.name === "fillForm")!;
+
+  const result = (await op.handler(handle, { values: { name: "Dana", agree: true } })) as {
+    renderData: PdfRenderData;
+  };
+
+  assert.equal(result.renderData.formFields.find((f) => f.name === "name")!.value, "Dana");
+  assert.equal(result.renderData.formFields.find((f) => f.name === "agree")!.value, true);
+
+  // Confirm it's really on disk, not just reflected in the returned data.
+  const reRendered = await pdfModule.render(handle);
+  const reData = reRendered.data as PdfRenderData;
+  assert.equal(reData.formFields.find((f) => f.name === "name")!.value, "Dana");
 });
 
 test("merge operation returns the newly created combined file path", async () => {
