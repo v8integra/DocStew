@@ -1162,3 +1162,98 @@ button:hover {
 #diagram-canvas {
   display: block;
 }
+
+#presentation-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+}
+
+#presentation-editor[hidden] {
+  display: none;
+}
+
+#presentation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#presentation-save-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  min-width: 80px;
+}
+
+#presentation-fidelity-note {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+#presentation-slide-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.presentation-slide-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.presentation-slide-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.presentation-slide-number {
+  color: var(--text-muted);
+  font-size: 12px;
+  min-width: 50px;
+}
+
+.presentation-slide-title-input {
+  flex: 1;
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.presentation-slide-bullets-input {
+  width: 100%;
+  min-height: 80px;
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.presentation-slide-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.presentation-slide-actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+}

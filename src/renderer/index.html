@@ -251,6 +251,24 @@
             <svg id="diagram-canvas" xmlns="http://www.w3.org/2000/svg"></svg>
           </div>
         </div>
+
+        <div id="presentation-editor" hidden>
+          <div id="presentation-toolbar">
+            <button id="presentation-add-slide">+ Add Slide</button>
+            <span class="pdf-toolbar-sep"></span>
+            <select id="presentation-export-format" title="Export format">
+              <option value="pptx">Export as PPTX (copy)</option>
+              <option value="pdf">Export as PDF</option>
+              <option value="txt">Export as Text</option>
+            </select>
+            <button id="presentation-export">Export</button>
+            <button id="presentation-history" title="Version History">History</button>
+            <button id="presentation-save">Save</button>
+            <span id="presentation-save-status"></span>
+          </div>
+          <p id="presentation-fidelity-note">Slides are edited as title + bullet text. Saving regenerates the whole file — visual layout, images, and other formatting from the original .pptx (if any) won't be preserved.</p>
+          <div id="presentation-slide-list"></div>
+        </div>
       </main>
     </div>
 

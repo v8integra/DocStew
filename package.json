@@ -27,10 +27,12 @@
     "fast-formula-parser": "^1.0.19",
     "fast-xml-parser": "^5.11.0",
     "js-yaml": "^5.3.0",
+    "jszip": "^3.10.1",
     "mammoth": "^1.12.1",
     "marked": "^18.0.10",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
+    "pptxgenjs": "^4.0.1",
     "sharp": "^0.35.3",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2"

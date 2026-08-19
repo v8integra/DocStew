@@ -167,6 +167,15 @@ interface DiagramDocumentData {
   connectors: DiagramConnectorData[];
 }
 
+interface PresentationSlideData {
+  title: string;
+  bullets: string[];
+}
+
+interface PresentationDocumentData {
+  slides: PresentationSlideData[];
+}
+
 interface FileVersion {
   id: number;
   documentId: string;
@@ -337,6 +346,15 @@ const diagramSaveBtn = document.getElementById("diagram-save") as HTMLButtonElem
 const diagramSaveStatusEl = document.getElementById("diagram-save-status") as HTMLSpanElement;
 const diagramHintEl = document.getElementById("diagram-hint") as HTMLParagraphElement;
 
+const presentationEditorEl = document.getElementById("presentation-editor") as HTMLDivElement;
+const presentationSlideListEl = document.getElementById("presentation-slide-list") as HTMLDivElement;
+const presentationAddSlideBtn = document.getElementById("presentation-add-slide") as HTMLButtonElement;
+const presentationExportFormatEl = document.getElementById("presentation-export-format") as HTMLSelectElement;
+const presentationExportBtn = document.getElementById("presentation-export") as HTMLButtonElement;
+const presentationHistoryBtn = document.getElementById("presentation-history") as HTMLButtonElement;
+const presentationSaveBtn = document.getElementById("presentation-save") as HTMLButtonElement;
+const presentationSaveStatusEl = document.getElementById("presentation-save-status") as HTMLSpanElement;
+
 const batchHintEl = document.getElementById("batch-hint") as HTMLParagraphElement;
 const batchBarEl = document.getElementById("batch-bar") as HTMLDivElement;
 const batchCountEl = document.getElementById("batch-count") as HTMLSpanElement;
@@ -504,6 +522,7 @@ function showEmpty(message: string): void {
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
   diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = true;
 }
 
 function showGenericContent(text: string): void {
@@ -516,6 +535,7 @@ function showGenericContent(text: string): void {
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
   diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = true;
   contentViewEl.textContent = text;
 }
 
@@ -529,6 +549,7 @@ function showNotesEditor(file: DocumentRecord, data: NotesData): void {
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
   diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = true;
 
   currentOpenFileId = file.id;
   currentViewedFileId = file.id;
@@ -574,6 +595,8 @@ async function selectFile(file: DocumentRecord): Promise<void> {
     await showImageViewer(file, result.rendered.data as ImageFileData);
   } else if (result.rendered.kind === "diagram") {
     showDiagramEditor(file, result.rendered.data as DiagramDocumentData);
+  } else if (result.rendered.kind === "presentation") {
+    showPresentationEditor(file, result.rendered.data as PresentationDocumentData);
   } else {
     showGenericContent(JSON.stringify(result.rendered, null, 2));
   }
@@ -774,6 +797,7 @@ async function showPdfViewer(file: DocumentRecord, data: PdfData): Promise<void>
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
   diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = true;
 
   currentPdfFileId = file.id;
   currentViewedFileId = file.id;
@@ -976,6 +1000,7 @@ function showWordEditor(file: DocumentRecord, data: WordData): void {
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
   diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = true;
 
   currentWordFileId = file.id;
   currentViewedFileId = file.id;
@@ -1232,6 +1257,7 @@ function showSheetViewer(file: DocumentRecord, data: SheetData): void {
   sdataEditorEl.hidden = true;
   imageViewerEl.hidden = true;
   diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = true;
 
   currentSheetFileId = file.id;
   currentViewedFileId = file.id;
@@ -1993,6 +2019,141 @@ diagramDeleteSelectedBtn.addEventListener("click", () => deleteDiagramSelection(
 diagramSaveBtn.addEventListener("click", () => void saveCurrentDiagram());
 diagramExportBtn.addEventListener("click", () => void exportCurrentDiagram());
 
+// ---- Presentation editor ----
+
+let currentPresentationFileId: string | undefined;
+let currentPresentationDoc: PresentationDocumentData = { slides: [{ title: "", bullets: [] }] };
+
+function renderPresentationSlideList(): void {
+  presentationSlideListEl.innerHTML = "";
+  currentPresentationDoc.slides.forEach((slide, index) => {
+    const card = document.createElement("div");
+    card.className = "presentation-slide-card";
+
+    const header = document.createElement("div");
+    header.className = "presentation-slide-card-header";
+
+    const number = document.createElement("span");
+    number.className = "presentation-slide-number";
+    number.textContent = `Slide ${index + 1}`;
+    header.appendChild(number);
+
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.className = "presentation-slide-title-input";
+    titleInput.placeholder = "Slide title";
+    titleInput.value = slide.title;
+    titleInput.addEventListener("input", () => {
+      slide.title = titleInput.value;
+    });
+    header.appendChild(titleInput);
+
+    const actions = document.createElement("div");
+    actions.className = "presentation-slide-actions";
+
+    const upBtn = document.createElement("button");
+    upBtn.textContent = "↑";
+    upBtn.title = "Move up";
+    upBtn.disabled = index === 0;
+    upBtn.addEventListener("click", () => {
+      const [moved] = currentPresentationDoc.slides.splice(index, 1);
+      currentPresentationDoc.slides.splice(index - 1, 0, moved);
+      renderPresentationSlideList();
+    });
+    actions.appendChild(upBtn);
+
+    const downBtn = document.createElement("button");
+    downBtn.textContent = "↓";
+    downBtn.title = "Move down";
+    downBtn.disabled = index === currentPresentationDoc.slides.length - 1;
+    downBtn.addEventListener("click", () => {
+      const [moved] = currentPresentationDoc.slides.splice(index, 1);
+      currentPresentationDoc.slides.splice(index + 1, 0, moved);
+      renderPresentationSlideList();
+    });
+    actions.appendChild(downBtn);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.textContent = "Delete";
+    deleteBtn.disabled = currentPresentationDoc.slides.length <= 1;
+    deleteBtn.addEventListener("click", () => {
+      currentPresentationDoc.slides.splice(index, 1);
+      renderPresentationSlideList();
+    });
+    actions.appendChild(deleteBtn);
+
+    header.appendChild(actions);
+    card.appendChild(header);
+
+    const bulletsInput = document.createElement("textarea");
+    bulletsInput.className = "presentation-slide-bullets-input";
+    bulletsInput.placeholder = "One bullet per line...";
+    bulletsInput.value = slide.bullets.join("\n");
+    bulletsInput.addEventListener("input", () => {
+      slide.bullets = bulletsInput.value.split("\n");
+    });
+    card.appendChild(bulletsInput);
+
+    presentationSlideListEl.appendChild(card);
+  });
+}
+
+function showPresentationEditor(file: DocumentRecord, data: PresentationDocumentData): void {
+  emptyStateEl.hidden = true;
+  contentViewEl.hidden = true;
+  notesEditorEl.hidden = true;
+  pdfViewerEl.hidden = true;
+  wordEditorEl.hidden = true;
+  sheetViewerEl.hidden = true;
+  sdataEditorEl.hidden = true;
+  imageViewerEl.hidden = true;
+  diagramEditorEl.hidden = true;
+  presentationEditorEl.hidden = false;
+
+  currentPresentationFileId = file.id;
+  currentViewedFileId = file.id;
+  currentPresentationDoc = data;
+  presentationSaveStatusEl.textContent = "";
+  renderPresentationSlideList();
+}
+
+function addPresentationSlide(): void {
+  currentPresentationDoc.slides.push({ title: "", bullets: [] });
+  renderPresentationSlideList();
+}
+
+async function saveCurrentPresentation(): Promise<void> {
+  if (!currentPresentationFileId) return;
+  presentationSaveStatusEl.textContent = "Saving...";
+  const result = await window.docstew.saveFile(currentPresentationFileId, currentPresentationDoc);
+  if (result.success) {
+    presentationSaveStatusEl.textContent = "Saved";
+    await refreshFileList();
+  } else {
+    presentationSaveStatusEl.textContent = `Error: ${result.error}`;
+  }
+}
+
+async function exportCurrentPresentation(): Promise<void> {
+  if (!currentPresentationFileId) return;
+  const format = presentationExportFormatEl.value;
+  presentationExportBtn.disabled = true;
+  presentationExportBtn.textContent = "Exporting...";
+  const result = await window.docstew.exportFile(currentPresentationFileId, format);
+  presentationExportBtn.disabled = false;
+  presentationExportBtn.textContent = "Export";
+  if (result.success && result.file) {
+    presentationSaveStatusEl.textContent = `Exported to ${result.file.fileName}`;
+    await refreshFileList();
+  } else {
+    presentationSaveStatusEl.textContent = `Export error: ${result.error}`;
+  }
+}
+
+presentationAddSlideBtn.addEventListener("click", () => addPresentationSlide());
+presentationSaveBtn.addEventListener("click", () => void saveCurrentPresentation());
+presentationExportBtn.addEventListener("click", () => void exportCurrentPresentation());
+
 // ---- Folder open ----
 
 openFolderBtn.addEventListener("click", async () => {
@@ -2195,6 +2356,9 @@ document.addEventListener("keydown", (event) => {
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !diagramEditorEl.hidden) {
     event.preventDefault();
     void saveCurrentDiagram();
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !presentationEditorEl.hidden) {
+    event.preventDefault();
+    void saveCurrentPresentation();
   }
 });
 
@@ -2444,6 +2608,7 @@ sheetHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 sdataHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 imageHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 diagramHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
+presentationHistoryBtn.addEventListener("click", () => toggleHistoryPanel(true));
 
 // ---- Translation review panel ----
 
