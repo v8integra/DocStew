@@ -430,6 +430,11 @@ function folderBaseName(folderPath: string): string {
 interface FileTreeFolderNode {
   kind: "folder";
   name: string;
+  // The real absolute path this node represents on disk — doubles as a
+  // stable, collision-proof key for tracking collapse state per subfolder
+  // (two different open folders can both have a "notes" subfolder; their
+  // real paths never collide).
+  path: string;
   children: Map<string, FileTreeFolderNode | FileTreeFileNode>;
 }
 
@@ -443,18 +448,23 @@ interface FileTreeFileNode {
  * file at "notes/2024/january.md" renders nested two levels deep instead of
  * appearing identical to a top-level file. */
 function buildFolderTree(rootPath: string, files: DocumentRecord[]): FileTreeFolderNode {
-  const root: FileTreeFolderNode = { kind: "folder", name: rootPath, children: new Map() };
+  const root: FileTreeFolderNode = { kind: "folder", name: rootPath, path: rootPath, children: new Map() };
   for (const file of files) {
     let relative = file.filePath;
     if (relative.startsWith(rootPath)) relative = relative.slice(rootPath.length);
     const segments = relative.split(/[\\/]+/).filter((s) => s.length > 0);
 
     let node = root;
+    let accumulatedPath = rootPath;
     for (let i = 0; i < segments.length - 1; i++) {
       const segment = segments[i];
+      const separator = accumulatedPath.endsWith("/") || accumulatedPath.endsWith("\\") ? "" : "/";
+      accumulatedPath = `${accumulatedPath}${separator}${segment}`;
       const existing = node.children.get(segment);
       const child: FileTreeFolderNode =
-        existing && existing.kind === "folder" ? existing : { kind: "folder", name: segment, children: new Map() };
+        existing && existing.kind === "folder"
+          ? existing
+          : { kind: "folder", name: segment, path: accumulatedPath, children: new Map() };
       node.children.set(segment, child);
       node = child;
     }
@@ -517,14 +527,31 @@ function renderTreeChildren(node: FileTreeFolderNode, container: HTMLElement, de
   files.sort((a, b) => (a.record.title || a.record.fileName).localeCompare(b.record.title || b.record.fileName));
 
   for (const folder of folders) {
+    const collapsed = collapsedFolders.has(folder.path);
     const wrap = document.createElement("div");
     wrap.className = "tree-subfolder";
+
     const label = document.createElement("div");
     label.className = "tree-subfolder-label";
     label.style.paddingLeft = `${8 + depth * 14}px`;
-    label.textContent = folder.name;
+
+    const caret = document.createElement("span");
+    caret.className = "tree-subfolder-caret";
+    caret.textContent = collapsed ? "▸" : "▾";
+    label.appendChild(caret);
+
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = folder.name;
+    label.appendChild(nameSpan);
+
+    label.addEventListener("click", () => {
+      if (collapsed) collapsedFolders.delete(folder.path);
+      else collapsedFolders.add(folder.path);
+      renderLibrary();
+    });
     wrap.appendChild(label);
-    renderTreeChildren(folder, wrap, depth + 1);
+
+    if (!collapsed) renderTreeChildren(folder, wrap, depth + 1);
     container.appendChild(wrap);
   }
 

@@ -206,10 +206,25 @@ button:hover {
 }
 
 .tree-subfolder-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   color: var(--text-muted);
   padding-top: 6px;
   padding-bottom: 2px;
+  padding-right: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tree-subfolder-label:hover {
+  background: var(--bg-hover);
+}
+
+.tree-subfolder-caret {
+  font-size: 10px;
+  flex-shrink: 0;
 }
 
 .tree-file-list {
